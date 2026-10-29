@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-28.8
+// @version      2026-10-28.9
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -138,6 +138,7 @@
                 idx: u(b + CH.index), team: u(b + CH.team), type: u(b + CH.type), hp: dv.getFloat32(ptr + b + CH.health, true),
                 alive: u(b + CH.alive) !== 0, kills: u(b + CH.kills),
                 x: dv.getInt32(ptr + b + CH.x, true), y: dv.getInt32(ptr + b + CH.y, true),
+                maxHp: dv.getFloat32(ptr + b + 28, true), gold: u(b + 36),
             };
         }
         // Who acted in this step; a spell entity acts for its owner.
@@ -149,9 +150,16 @@
                 if (u(b) === 4 && u(b + 4) === actor.index) { actor = { kind: u(b + 8), index: u(b + 12) }; break; }
             }
         }
-        const input = u(SNAP.input), substep = u(SNAP.substep);
+        const input = u(SNAP.input), substep = u(SNAP.substep), stepKind0 = u(SNAP.stepKind);
+        // shop (13) / sell (25) steps: the buyer's inventory, a count per item id (42 ids v1, 84 v2), plus consumables
+        let shopInv = null;
+        if ((stepKind0 === 13 || stepKind0 === 25) && actor.kind === 1) {
+            const v2 = SNAP.stride === 420, NI = v2 ? 84 : 42, xo = v2 ? 168 : 0;
+            for (let i = 0; i < n; i++) { const b = SNAP.champs + i * SNAP.stride; if (u(b + CH.index) !== actor.index) continue;
+                shopInv = { idx: actor.index, items: Array.from({ length: NI }, (_, k) => u(b + 48 + 4 * k)), cons: [0, 1, 2, 3].map(k => u(b + xo + 216 + 4 * k)) }; break; }
+        }
         return {
-            round: u(SNAP.round), outcome: u(SNAP.outcome), stepKind: u(SNAP.stepKind), actor, scores: [u(32), u(40)], // tributed gems per team
+            phase: u(SNAP.phase), shopInv, round: u(SNAP.round), outcome: u(SNAP.outcome), stepKind: u(SNAP.stepKind), actor, scores: [u(32), u(40)], // tributed gems per team
             slot: u(SNAP.abilitySlot), atype: u(SNAP.abilityType), // ability slot (0/1) and kind: 1 attack reset, 6 dash, ...
             timeline: dv.getBigUint64(ptr + SNAP.timeline, true), input, substep, key: input + Math.min(substep, 9999) / 1e4, champs,
         };
@@ -921,6 +929,25 @@
   border-top-color: #e6f4ff; border-right-color: #5ab4ff; box-shadow: 0 0 10px rgba(74,168,255,.8), inset 0 0 8px rgba(74,168,255,.6); animation: cbcspin 1s linear infinite; }
 #cbc-ov .rring i.b { inset: -4px; border-width: 2px; border-color: transparent; border-bottom-color: rgba(120,190,255,.8); animation-duration: 1.6s; animation-direction: reverse; box-shadow: none; }
 @keyframes cbcspin { to { transform: rotate(360deg); } }
+#cbc-score { position: fixed; transform: translateX(-50%); display: flex; align-items: stretch; gap: 0; pointer-events: none; z-index: 2147482997;
+  font: 600 13px Archivo, system-ui, sans-serif; color: #f0e6d2; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+#cbc-score .t { display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 38px; background: linear-gradient(#10141c, #0a0d12); border: 1px solid #785a28; }
+#cbc-score .t0 { border-right: none; border-radius: 4px 0 0 4px; } #cbc-score .t1 { border-left: none; border-radius: 0 4px 4px 0; }
+#cbc-score .nm { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; max-width: 130px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#cbc-score .t0 .nm { color: #6fa8ff; } #cbc-score .t1 .nm { color: #ff7a6e; }
+#cbc-score .k { font: 800 22px Archivo, sans-serif; min-width: 24px; text-align: center; }
+#cbc-score .mid { display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 3px 12px; background: linear-gradient(#141923, #0c1016); border-top: 1px solid #785a28; border-bottom: 1px solid #785a28; min-width: 230px; }
+#cbc-score .gold { display: flex; align-items: center; justify-content: center; gap: 8px; font: 700 13px 'IBM Plex Mono', monospace; color: #e8c66a; }
+#cbc-score .gold i { width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2b0, #c8962a); display: inline-block; }
+#cbc-score .lead { font-size: 11px; color: #9a937f; min-width: 52px; text-align: center; } #cbc-score .lead.l0 { color: #6fa8ff; } #cbc-score .lead.l1 { color: #ff7a6e; }
+#cbc-score .gems { display: flex; align-items: center; gap: 6px; font: 600 10px 'IBM Plex Mono', monospace; color: #c9c2ae; }
+#cbc-score .gems .bar { position: relative; flex: 1; height: 5px; background: #222833; border-radius: 3px; overflow: hidden; }
+#cbc-score .gems .b0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #3d8bff; } #cbc-score .gems .b1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ff4a3d; }
+#cbc-score .gems .bar::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: #e8c66a; }
+#cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
+#cbc-inv i { position: relative; width: 16px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; box-shadow: 0 0 0 1px #000, 0 0 0 2px #5b4a2a; border-radius: 2px; }
+#cbc-inv i.new { box-shadow: 0 0 0 1px #000, 0 0 0 2px #e8c66a, 0 0 6px #e8c66a; }
+#cbc-inv s { position: absolute; right: -2px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 #cbc-ov .tparrow { position: absolute; left: 0; top: 0; image-rendering: pixelated; filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
 #cbc-fx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147482997; pointer-events: none; }
 .cbc-death { position: absolute; left: 0; top: 0; will-change: transform; }
@@ -1624,6 +1651,23 @@
         const a = new Int16Array(snap.champs.length * 3), hp = new Float32Array(snap.champs.length);
         snap.champs.forEach((c, i) => { a[i * 3] = c.x; a[i * 3 + 1] = c.y; a[i * 3 + 2] = c.alive ? 1 : 0; hp[i] = c.hp; });
         cam.track.set(snap.round, a); // last write wins: the state at the end of the round
+        // team economy, the way the viewer's analytics count it: gold earned = every positive change in a champion's
+        // gold (draft excluded); net worth = unspent gold + what their items cost; kills summed per champion
+        cam.goldPrev ||= new Map(); cam.earned ||= [0, 0]; cam.inv ||= new Map(); cam.buys ||= []; cam.invHist ||= new Map();
+        cam.goldTeam ||= new Map(); cam.worthTeam ||= new Map(); cam.killsTeam ||= new Map();
+        if (snap.phase !== 12) for (const c of snap.champs) { const pg = cam.goldPrev.get(c.idx) ?? c.gold; if (c.gold > pg) cam.earned[c.team] += c.gold - pg; cam.goldPrev.set(c.idx, c.gold); }
+        if (snap.shopInv) {
+            const { idx, items, cons } = snap.shopInv, prev = cam.inv.get(idx);
+            const got = items.map((n, id) => n - (prev?.items[id] || 0) > 0 ? id : -1).filter(x => x >= 0);
+            const gotC = cons.map((n, k) => n - (prev?.cons[k] || 0) > 0 ? k : -1).filter(x => x >= 0);
+            if (snap.stepKind === 13 && (got.length || gotC.length)) cam.buys.push({ round: snap.round, idx, items: got, cons: gotC });
+            cam.inv.set(idx, { items, cons });
+            let h = cam.invHist.get(idx); if (!h) cam.invHist.set(idx, h = []); h.push({ round: snap.round, items, cons });
+        }
+        const worth = [0, 0], kills = [0, 0];
+        for (const c of snap.champs) { const iv = cam.inv.get(c.idx); worth[c.team] += c.gold + (iv ? itemsValue(iv) : 0); kills[c.team] += c.kills; }
+        cam.goldTeam.set(snap.round, [...cam.earned]); cam.worthTeam.set(snap.round, worth); cam.killsTeam.set(snap.round, kills);
+        (cam.gemsTeam ||= new Map()).set(snap.round, snap.scores.slice()); cam.gemsAt ||= rr => atRound(cam.gemsTeam, rr) || [0, 0];
         (cam.hp ||= new Map()).set(snap.round, hp);
         if (before?.champs?.length === snap.champs.length && snap.actor.kind === 1) {
             const by = snap.champs.find(c => c.idx === snap.actor.index);
@@ -1643,6 +1687,9 @@
         }
         cam.ver++;
     }
+    // item costs: shards 30, emblems 150 (Greed, ids 72-77: emblem 750), consumables 10
+    const itemCost = id => id % 2 ? (id >= 72 && id <= 77 ? 750 : 150) : 30;
+    const itemsValue = iv => iv.items.reduce((t, n, id) => t + n * itemCost(id), 0) + iv.cons.reduce((t, n) => t + n * 10, 0);
     function trackAt(cam, r) { for (let k = 0; k < 40; k++) { const a = cam.track.get(r - k); if (a) return a; } return null; }
     const CUT_GAP = 12;
     function planShots(g) {
@@ -2267,6 +2314,9 @@
         { const cx2 = ov.cv.getContext('2d'); if (ov.cv.width !== Math.round(innerWidth * dpr) || ov.cv.height !== Math.round(innerHeight * dpr)) { ov.cv.width = Math.round(innerWidth * dpr); ov.cv.height = Math.round(innerHeight * dpr); }
           cx2.setTransform(dpr, 0, 0, dpr, 0, 0); cx2.clearRect(0, 0, innerWidth, innerHeight); }
         drawHealthBars(cam, champs, r, frac, P, tile, zoomedOut, now);
+        // 1c. the scoreboard (kills, net worth and the gold lead, gems) and each champion's items under their portrait
+        drawScoreboard(root, cam, r, rc);
+        drawInventories(root, cam, r);
         // 2. recalls (channelled more than one turn): a rotating ring on the ground around them, or, zoomed out, a
         //    glowing ring cycling around their icon
         const active = (cam.recalls || []).filter(x => r >= x.r1 && r < x.r2);
@@ -2307,6 +2357,66 @@
     // Recall, zoomed in: a glowing white ring on the ground around them, a bright arc chasing round it. It's a decal in
     // the viewer's own ground layer, so it lies flat on the map in the camera's perspective (squashed, smaller further
     // away) and sits under the champion. The spin is 16 pre-drawn frames.
+    // --- League-style top bar over the viewer's gem bar ----------------------------------------------------------------
+    const atRound = (m, r) => { if (!m) return null; for (let k = 0; k < 60; k++) { const v = m.get(r - k); if (v) return v; } return null; };
+    const kfmt = v => v >= 10000 ? (v / 1000).toFixed(1) + 'k' : v >= 1000 ? (v / 1000).toFixed(1) + 'k' : String(Math.round(v));
+    function drawScoreboard(root, cam, r, rc) {
+        let el = document.getElementById('cbc-score');
+        if (!el) { el = document.createElement('div'); el.id = 'cbc-score';
+            el.innerHTML = `<div class="t t0"><b class="nm"></b><span class="k"></span></div><div class="mid"><div class="gold"><span class="g0"></span><i></i><span class="lead"></span><i></i><span class="g1"></span></div><div class="gems"><span class="s0"></span><div class="bar"><b class="b0"></b><b class="b1"></b></div><span class="s1"></span></div></div><div class="t t1"><span class="k"></span><b class="nm"></b></div>`;
+            root.append(el); }
+        const kills = atRound(cam.killsTeam, r) || [0, 0], worth = atRound(cam.worthTeam, r) || [0, 0], snap = game?.play;
+        const gems = cam.gemsAt ? cam.gemsAt(r) : [0, 0];
+        el.style.left = (rc.left + rc.width / 2) + 'px'; el.style.top = (rc.top + 30) + 'px';
+        const nm = t => (game?.names?.[t] || (t ? 'Red' : 'Blue')).slice(0, 18);
+        el.querySelector('.t0 .nm').textContent = nm(0); el.querySelector('.t1 .nm').textContent = nm(1);
+        el.querySelector('.t0 .k').textContent = kills[0]; el.querySelector('.t1 .k').textContent = kills[1];
+        el.querySelector('.g0').textContent = kfmt(worth[0]); el.querySelector('.g1').textContent = kfmt(worth[1]);
+        const d = worth[0] - worth[1], lead = el.querySelector('.lead');
+        lead.textContent = Math.abs(d) < 50 ? 'even' : '+' + kfmt(Math.abs(d)); lead.className = 'lead ' + (Math.abs(d) < 50 ? '' : d > 0 ? 'l0' : 'l1');
+        el.querySelector('.s0').textContent = gems[0]; el.querySelector('.s1').textContent = gems[1];
+        el.querySelector('.b0').style.width = Math.min(50, gems[0] / 20) + '%'; el.querySelector('.b1').style.width = Math.min(50, gems[1] / 20) + '%';
+    }
+    // --- items under each champion's portrait in the viewer's team bars -----------------------------------------------
+    let itemIcons = null, itemIconsLoading = false;
+    function loadItemIcons() {
+        if (itemIcons || itemIconsLoading) return; itemIconsLoading = true;
+        const url = performance.getEntriesByType('resource').map(e => e.name).find(u => /\/items-atlas-(?!v1|export)[\w-]+\.png/.test(u));
+        if (!url) { itemIconsLoading = false; return; }
+        const img = new Image(); img.crossOrigin = 'anonymous'; img.src = url;
+        img.decode().then(() => {
+            const cell = (row, col) => { const c = document.createElement('canvas'); c.width = c.height = 16; c.getContext('2d').drawImage(img, col * 16, row * 16, 16, 16, 0, 0, 16, 16); return c.toDataURL(); };
+            itemIcons = { items: Array.from({ length: img.naturalWidth >= 192 ? 84 : 42 }, (_, id) => { const f = Math.floor(id / 6); return cell(f % 7, [3, 0, 5, 2, 4, 1][id % 6] + 6 * Math.floor(f / 7)); }),
+                cons: [2, 0, 1, 3].map(col => cell(7, col)) };
+        }).catch(() => { itemIconsLoading = false; });
+    }
+    const FAMILIES = ['Monster', 'Power', 'Durability', 'Treasure', 'Jungle', 'Home', 'Bruiser', 'Tribute', 'Capture', 'Prospector', 'Hunter', 'Skirmish', 'Greed', 'Collectors'];
+    const KINDS = ['Shard of Strength', 'Emblem of Strength', 'Shard of Focus', 'Emblem of Focus', 'Shard of Health', 'Emblem of Health'];
+    const CONS = ['Teleport crystal', 'Control ward', 'Altar lock', 'TP scroll'];
+    const itemName = id => FAMILIES[Math.floor(id / 6)] + ' ' + KINDS[id % 6];
+    function invAt(cam, idx, r) { const h = cam.invHist?.get(idx); if (!h) return null; let best = null; for (const e of h) { if (e.round <= r) best = e; else break; } return best; }
+    function drawInventories(root, cam, r) {
+        loadItemIcons(); if (!itemIcons || !game?.roster) return;
+        let box = document.getElementById('cbc-inv'); if (!box) { box = document.createElement('div'); box.id = 'cbc-inv'; root.append(box); }
+        const now = performance.now(); if (box._at && now - box._at < 300 && box._r === r) return; box._at = now; box._r = r;
+        // each portrait in the viewer's team bars has a "Follow <name> with camera" button under it: left half = team 0
+        const mapRc = findBackend()?.htmlRefs?.canvas?.getBoundingClientRect(); if (!mapRc) return;
+        const mid = mapRc.left + mapRc.width / 2;
+        const anchors = [...document.querySelectorAll('button[aria-label^="Follow "][aria-label$=" with camera"]')].map(b => {
+            const rr = b.getBoundingClientRect(); return { name: b.getAttribute('aria-label').slice(7, -12), team: rr.left + rr.width / 2 < mid ? 0 : 1, cx: rr.left + rr.width / 2, bottom: rr.bottom }; });
+        let html = '';
+        for (const c of game.roster) {
+            const an = anchors.find(a => a.team === c.team && a.name === CHAMPS[c.type]); if (!an) continue;
+            const cx = an.cx, top = an.bottom + 4;
+            const inv = invAt(cam, c.idx, r); if (!inv) continue;
+            const fresh = new Set((cam.buys || []).filter(b => b.idx === c.idx && b.round <= r && b.round > r - 12).flatMap(b => b.items));
+            const owned = inv.items.map((n, id) => ({ id, n })).filter(x => x.n > 0).sort((a, b) => (b.id % 2) - (a.id % 2) || b.n - a.n);
+            const cells = owned.slice(0, 6).map(x => `<i class="${fresh.has(x.id) ? 'new' : ''}" title="${itemName(x.id)}${x.n > 1 ? ' x' + x.n : ''}" style="background-image:url(${itemIcons.items[x.id]})">${x.n > 1 ? `<s>${x.n}</s>` : ''}</i>`)
+                .concat(inv.cons.map((n, k) => n > 0 ? `<i title="${CONS[k]}${n > 1 ? ' x' + n : ''}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : '').filter(Boolean)).slice(0, 8);
+            if (cells.length) html += `<div class="col" style="left:${cx - 17}px;top:${top}px">${cells.join('')}</div>`;
+        }
+        box.innerHTML = html;
+    }
     const hpLag = new Map();
     function maxHpAt(cam, i, r) {
         const k = i + ':' + (r - r % 10); cam.maxHpCache ||= new Map();
@@ -2835,5 +2945,5 @@
     };
 
     // debugging / tests
-    window.__cbcAnnouncer = { get game() { return game; }, backend: () => findBackend(), bridgeReq: () => [...bridge.started.keys()], bridgeOk: () => [...bridge.url.keys()], localReady, cine, planShots, planDual, ending, dualcam, dualDir, draftDbg: () => ({ phase, playing: isPlaying(), on: draft.on, shown: game?.draftShown, seen: [...seenLocks], q: lockQ.length }), log, sfx, visibleTiles, posGain, LINES, decode, diff, audio: () => Object.fromEntries([...audioCache].map(([k, a]) => [k, a.dataset.state])), applyKill, pickTake, art, banner, say };
+    window.__cbcAnnouncer = { get game() { return game; }, invDbg: () => ({ icons: !!itemIcons, hist: game?.cam?.invHist ? [...game.cam.invHist.keys()] : null, buys: game?.cam?.buys?.length, labels: [...document.querySelectorAll("[aria-label]")].map(e => e.getAttribute("aria-label")).filter(l => /Team [AB]$|^Follow /.test(l)).slice(0, 12), atlas: performance.getEntriesByType("resource").map(e => e.name).filter(u => /items-atlas/.test(u)) }), backend: () => findBackend(), bridgeReq: () => [...bridge.started.keys()], bridgeOk: () => [...bridge.url.keys()], localReady, cine, planShots, planDual, ending, dualcam, dualDir, draftDbg: () => ({ phase, playing: isPlaying(), on: draft.on, shown: game?.draftShown, seen: [...seenLocks], q: lockQ.length }), log, sfx, visibleTiles, posGain, LINES, decode, diff, audio: () => Object.fromEntries([...audioCache].map(([k, a]) => [k, a.dataset.state])), applyKill, pickTake, art, banner, say };
 })();
