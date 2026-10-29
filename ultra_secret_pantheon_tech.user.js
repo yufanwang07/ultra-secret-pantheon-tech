@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-28.5
+// @version      2026-10-28.6
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -1029,7 +1029,10 @@
         const a = base.readyState >= 2 ? base.cloneNode() : base;
         const pg = near ? nearGain(soundAt?.x, soundAt?.y) : soundAt ? posGain(soundAt.x, soundAt.y) : 1;
         // on-screen-only sounds (teleports) start silent off screen, and fade up if the camera arrives while they play
-        const g0 = onscreen && soundAt ? (pg > 1 ? pg : 0) : pg;
+        let g0 = onscreen && soundAt ? (pg > 1 ? pg : 0) : pg;
+        // a placed sound starts a bit louder than where it is would say (so its start isn't missed), then the tracker
+        // below eases it to its real level over about a second
+        if (soundAt) g0 = Math.max(g0, (near ? 0.25 : 0.45) + 0.0 * g0);
         a.volume = Math.max(0, Math.min(1, (loud ? volume() : sfxVolume()) * vol * g0));
         // every placed sound follows the camera while it plays: a channel or voice line gets louder as the camera
         // moves onto it (and quieter as it leaves), not just whatever it was when it started
@@ -2715,7 +2718,7 @@
             else if (st.kind === 21) { // channel starts: the channel hum where they stand, an "on my way" ping where they're going
                 sfx('teleport', { vol: 0.8, rate: viewerSpeed(), onscreen: true });
                 const tp = game?.cam?.tps?.find(t => t.actor === st.actor && t.r1 === st.round);
-                if (tp) { const at = soundAt; soundAt = { x: tp.to[0], y: tp.to[1] }; sfx('omw', { vol: 0.7, onscreen: true }); soundAt = at; }
+                if (tp) sfx('omw', { vol: 0.75 }); // the "on my way" ping always plays as if on screen: it's the context for what's coming
             }
             else if (st.kind === 22) sfx('teleportEnd', { vol: 0.9, onscreen: true });
             else if (st.kind === 1 && st.type != null) sfx('c' + st.type + 'respawn', { vol: 0.85 }); // the champion's respawn line
