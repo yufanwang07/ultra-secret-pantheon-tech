@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-28.7
+// @version      2026-10-28.8
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -1912,9 +1912,20 @@
                 ev.push({ kind: 'escape', s: r - 4, e: r + 16, ppl: new Set([idx, cam.order[near]]), deaths: new Map(), pri: 30 });
             });
         }
-        // 3. a team moving / farming together
-        for (let r = 20; r < last - 30; r += 15) for (const c of passiveCandidates(cam, r)) if (c.kind === 'group' && c.team != null)
-            ev.push({ kind: 'group', s: r, e: r + 30, ppl: c.ppl, deaths: new Map(), pri: 12, minW: 18 });
+        // 3. farming is only worth a second camera when it's big: a team grinding one big camp together (golem,
+        //    monolith, a packed camp: nearly every member hitting camps nearly every round for the whole stretch), or
+        //    one champion working a camp for a long time. Ordinary farming and walking around never get one.
+        if (!cam.act) { cam.act = new Map(); for (const st of g.steps) if ((st.kind === 5 || st.kind === 6) && !st.vc && st.actor != null) { let a = cam.act.get(st.actor); if (!a) cam.act.set(st.actor, a = []); if (a.at(-1) !== st.round) a.push(st.round); } }
+        const farmRounds = (idx, r0, r1) => (cam.act.get(idx) || []).filter(x => x >= r0 && x <= r1).length;
+        for (let r = 20; r < last - 30; r += 15) for (const c of passiveCandidates(cam, r)) {
+            if (c.kind !== 'group' || c.team == null) continue;
+            const avg = [...c.ppl].reduce((t, idx) => t + farmRounds(idx, r, r + 30), 0) / c.ppl.size;
+            if (avg >= 20) ev.push({ kind: 'group', s: r, e: r + 30, ppl: c.ppl, deaths: new Map(), pri: 26, minW: 18 }); // big enough to split for
+        }
+        for (const [idx, rounds] of cam.act) for (let i = 0; i < rounds.length; i++) {
+            const j = rounds.findIndex(x => x > rounds[i] + 40); const n = (j < 0 ? rounds.length : j) - i;
+            if (n >= 32) { ev.push({ kind: 'farm', s: rounds[i], e: rounds[i] + 40, ppl: new Set([idx]), deaths: new Map(), pri: 16, minW: 14 }); i += n; }
+        }
         const win = s => [s.pre ?? s.s, s.e];
         const cen = new Map(); // shot -> round -> centre, sampled every 3 rounds
         const centre = (s, r) => { let m = cen.get(s); if (!m) cen.set(s, m = new Map()); const k = r - (r % 3); if (!m.has(k)) { const f = frameShot(cam, s, k); m.set(k, f && [f.cx, f.cy]); } return m.get(k); };
@@ -1928,7 +1939,9 @@
             if (!n || far / n < 0.6) continue; // they have to be in different places most of the time
             // two big fights, or two similar mid-size things (escape vs exchange, group vs group): side by side;
             // something big plus something small: picture-in-picture
-            const mode = (A.pri >= 100 && B.pri >= 100) || (B.pri >= 12 && B.pri >= 0.55 * A.pri && A.pri < 100) ? 'split' : A.pri >= 25 && B.pri >= 12 ? 'pip' : null; if (!mode) continue;
+            // split only when both halves are worth watching: two big fights, or two solid mid-size things (trades,
+            // escapes, tributes, big camps); small stuff (light pokes, a solo farmer) only ever gets the corner inset
+            const mode = (A.pri >= 100 && B.pri >= 100) || (B.pri >= 25 && B.pri >= 0.55 * A.pri && A.pri < 100) ? 'split' : A.pri >= 25 && B.pri >= 12 ? 'pip' : null; if (!mode) continue;
             const s0 = Math.max(a0, b0 - D.lead);
             let promote = b1 > a1 + 12 && B.kind !== 'group'; // only worth a handoff if camera 2's event really goes on
             let e0 = promote ? a1 : Math.min(a1, b1 + D.tail);
@@ -2248,6 +2261,12 @@
             el.style.display = ''; seen.add(ch.idx);
         }
         for (const [idx, el] of ov.pointers) if (!seen.has(idx)) el.style.display = 'none';
+        // 1b. League-style health bars: bigger than the viewer's own, drawn over them, team coloured, with a tick every
+        //     250 HP and a heavier one every 1000 so different max HPs read at a glance; recent damage shows as a
+        //     pale chunk that drains away
+        { const cx2 = ov.cv.getContext('2d'); if (ov.cv.width !== Math.round(innerWidth * dpr) || ov.cv.height !== Math.round(innerHeight * dpr)) { ov.cv.width = Math.round(innerWidth * dpr); ov.cv.height = Math.round(innerHeight * dpr); }
+          cx2.setTransform(dpr, 0, 0, dpr, 0, 0); cx2.clearRect(0, 0, innerWidth, innerHeight); }
+        drawHealthBars(cam, champs, r, frac, P, tile, zoomedOut, now);
         // 2. recalls (channelled more than one turn): a rotating ring on the ground around them, or, zoomed out, a
         //    glowing ring cycling around their icon
         const active = (cam.recalls || []).filter(x => r >= x.r1 && r < x.r2);
@@ -2265,7 +2284,6 @@
         iconGlow(b, zoomedOut ? recalling : [], now);
         // 3. teleports: a thin line on the ground from the champion to where they're going during the channel (under
         //    everyone), a small pixel arrow on the destination tile, and a strike when they land
-        if (ov.cv) ov.cv.getContext('2d').clearRect(0, 0, ov.cv.width, ov.cv.height);
         const arrowSeen = new Set(), segs = [];
         for (const tp of cam.tps || []) {
             const key = tp.actor + ':' + tp.r1;
@@ -2289,6 +2307,38 @@
     // Recall, zoomed in: a glowing white ring on the ground around them, a bright arc chasing round it. It's a decal in
     // the viewer's own ground layer, so it lies flat on the map in the camera's perspective (squashed, smaller further
     // away) and sits under the champion. The spin is 16 pre-drawn frames.
+    const hpLag = new Map();
+    function maxHpAt(cam, i, r) {
+        const k = i + ':' + (r - r % 10); cam.maxHpCache ||= new Map();
+        if (cam.maxHpCache.has(k)) return cam.maxHpCache.get(k);
+        let m = 0; for (let rr = r - 120; rr <= r; rr += 2) { const h = cam.hp?.get(rr); if (h && h[i] > m) m = h[i]; }
+        cam.maxHpCache.set(k, m); return m;
+    }
+    function drawHealthBars(cam, champs, r, frac, P, tile, zoomedOut, now) {
+        const x = ov.cv?.getContext('2d'); if (!x || zoomedOut || !cam.hp) return;
+        let h0 = null; for (let k = 0; k < 6 && !h0; k++) h0 = cam.hp.get(r - k); if (!h0) return;
+        const h1 = cam.hp.get(r + 1) || h0;
+        const W = tile * 1.75, H = Math.max(5, tile * 0.2);
+        for (const ch of champs) {
+            if (!ch.alive) continue;
+            const p = P(ch.x, ch.y); if (!p) continue;
+            const hp = Math.max(0, h0[ch.i] + (h1[ch.i] - h0[ch.i]) * frac), max = Math.max(hp, maxHpAt(cam, ch.i, r)) || 1;
+            const lag = hpLag.get(ch.idx), shown = lag == null || hp > lag ? hp : lag - (lag - hp) * 0.06;
+            hpLag.set(ch.idx, shown);
+            const bx = p.x - W / 2, by = p.y - tile * 1.9 - H / 2; // right over the viewer's own bar
+            x.fillStyle = 'rgba(0,0,0,.85)'; x.fillRect(bx - 1.5, by - 1.5, W + 3, H + 3);
+            x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
+            x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(bx, by, W * Math.min(1, shown / max), H); // recent damage
+            const col = TEAM_RGB[ch.team] || '#ccc', grd = x.createLinearGradient(0, by, 0, by + H);
+            grd.addColorStop(0, col); grd.addColorStop(1, ch.team === 1 ? '#a8261c' : '#1f57b8');
+            x.fillStyle = grd; x.fillRect(bx, by, W * Math.min(1, hp / max), H);
+            const step = max > 4000 ? 500 : 250;
+            for (let v = step; v < max; v += step) {
+                const tx = bx + W * v / max, big = v % 1000 === 0;
+                x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(Math.round(tx), by, big ? 1.6 : 1, big ? H : H * 0.55);
+            }
+        }
+    }
     function groundRings(b, champs, now) {
         const sc = b?.scene, st = b?.spritestore; if (!sc?.tileDecals || !st?.procedural) return;
         if (!ov.ringTex) {
