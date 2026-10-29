@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-28.9
+// @version      2026-10-28.10
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -138,7 +138,7 @@
                 idx: u(b + CH.index), team: u(b + CH.team), type: u(b + CH.type), hp: dv.getFloat32(ptr + b + CH.health, true),
                 alive: u(b + CH.alive) !== 0, kills: u(b + CH.kills),
                 x: dv.getInt32(ptr + b + CH.x, true), y: dv.getInt32(ptr + b + CH.y, true),
-                maxHp: dv.getFloat32(ptr + b + 28, true), gold: u(b + 36),
+                maxHp: dv.getFloat32(ptr + b + 28, true), gold: u(b + 36), gems: u(b + 40),
             };
         }
         // Who acted in this step; a spell entity acts for its owner.
@@ -943,6 +943,8 @@
 #cbc-score .gems { display: flex; align-items: center; gap: 6px; font: 600 10px 'IBM Plex Mono', monospace; color: #c9c2ae; }
 #cbc-score .gems .bar { position: relative; flex: 1; height: 5px; background: #222833; border-radius: 3px; overflow: hidden; }
 #cbc-score .gems .b0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #3d8bff; } #cbc-score .gems .b1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ff4a3d; }
+#cbc-score .gems .h0 { position: absolute; right: 50%; top: 0; bottom: 0; background: rgba(61,139,255,.35); } #cbc-score .gems .h1 { position: absolute; left: 50%; top: 0; bottom: 0; background: rgba(255,74,61,.35); }
+#cbc-score .gems em { font-style: normal; color: #8a8576; margin: 0 2px; }
 #cbc-score .gems .bar::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: #e8c66a; }
 #cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
 #cbc-inv i { position: relative; width: 16px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; box-shadow: 0 0 0 1px #000, 0 0 0 2px #5b4a2a; border-radius: 2px; }
@@ -1667,7 +1669,8 @@
         const worth = [0, 0], kills = [0, 0];
         for (const c of snap.champs) { const iv = cam.inv.get(c.idx); worth[c.team] += c.gold + (iv ? itemsValue(iv) : 0); kills[c.team] += c.kills; }
         cam.goldTeam.set(snap.round, [...cam.earned]); cam.worthTeam.set(snap.round, worth); cam.killsTeam.set(snap.round, kills);
-        (cam.gemsTeam ||= new Map()).set(snap.round, snap.scores.slice()); cam.gemsAt ||= rr => atRound(cam.gemsTeam, rr) || [0, 0];
+        const held = [0, 0]; for (const c of snap.champs) if (c.alive) held[c.team] += c.gems;
+        (cam.gemsTeam ||= new Map()).set(snap.round, [...snap.scores, ...held]); cam.gemsAt ||= rr => atRound(cam.gemsTeam, rr) || [0, 0, 0, 0];
         (cam.hp ||= new Map()).set(snap.round, hp);
         if (before?.champs?.length === snap.champs.length && snap.actor.kind === 1) {
             const by = snap.champs.find(c => c.idx === snap.actor.index);
@@ -2313,7 +2316,7 @@
         //     pale chunk that drains away
         { const cx2 = ov.cv.getContext('2d'); if (ov.cv.width !== Math.round(innerWidth * dpr) || ov.cv.height !== Math.round(innerHeight * dpr)) { ov.cv.width = Math.round(innerWidth * dpr); ov.cv.height = Math.round(innerHeight * dpr); }
           cx2.setTransform(dpr, 0, 0, dpr, 0, 0); cx2.clearRect(0, 0, innerWidth, innerHeight); }
-        drawHealthBars(cam, champs, r, frac, P, tile, zoomedOut, now);
+        hookHealthBars(b);
         // 1c. the scoreboard (kills, net worth and the gold lead, gems) and each champion's items under their portrait
         drawScoreboard(root, cam, r, rc);
         drawInventories(root, cam, r);
@@ -2363,7 +2366,7 @@
     function drawScoreboard(root, cam, r, rc) {
         let el = document.getElementById('cbc-score');
         if (!el) { el = document.createElement('div'); el.id = 'cbc-score';
-            el.innerHTML = `<div class="t t0"><b class="nm"></b><span class="k"></span></div><div class="mid"><div class="gold"><span class="g0"></span><i></i><span class="lead"></span><i></i><span class="g1"></span></div><div class="gems"><span class="s0"></span><div class="bar"><b class="b0"></b><b class="b1"></b></div><span class="s1"></span></div></div><div class="t t1"><span class="k"></span><b class="nm"></b></div>`;
+            el.innerHTML = `<div class="t t0"><b class="nm"></b><span class="k"></span></div><div class="mid"><div class="gold"><span class="g0"></span><i></i><span class="lead"></span><i></i><span class="g1"></span></div><div class="gems"><span class="s0"></span><div class="bar"><b class="h0"></b><b class="b0"></b><b class="h1"></b><b class="b1"></b></div><span class="s1"></span></div></div><div class="t t1"><span class="k"></span><b class="nm"></b></div>`;
             root.append(el); }
         const kills = atRound(cam.killsTeam, r) || [0, 0], worth = atRound(cam.worthTeam, r) || [0, 0], snap = game?.play;
         const gems = cam.gemsAt ? cam.gemsAt(r) : [0, 0];
@@ -2373,9 +2376,12 @@
         el.querySelector('.t0 .k').textContent = kills[0]; el.querySelector('.t1 .k').textContent = kills[1];
         el.querySelector('.g0').textContent = kfmt(worth[0]); el.querySelector('.g1').textContent = kfmt(worth[1]);
         const d = worth[0] - worth[1], lead = el.querySelector('.lead');
-        lead.textContent = Math.abs(d) < 50 ? 'even' : '+' + kfmt(Math.abs(d)); lead.className = 'lead ' + (Math.abs(d) < 50 ? '' : d > 0 ? 'l0' : 'l1');
-        el.querySelector('.s0').textContent = gems[0]; el.querySelector('.s1').textContent = gems[1];
-        el.querySelector('.b0').style.width = Math.min(50, gems[0] / 20) + '%'; el.querySelector('.b1').style.width = Math.min(50, gems[1] / 20) + '%';
+        lead.textContent = Math.abs(d) < 50 ? '' : '+' + kfmt(Math.abs(d)); lead.className = 'lead ' + (Math.abs(d) < 50 ? '' : d > 0 ? 'l0' : 'l1');
+        // gems: tributed (solid) plus what each team is carrying right now (fainter), out of 1000
+        const [dep0, dep1, held0 = 0, held1 = 0] = gems;
+        el.querySelector('.s0').innerHTML = `${dep0}${held0 ? `<em>+${held0}</em>` : ''}`; el.querySelector('.s1').innerHTML = `${held1 ? `<em>+${held1}</em>` : ''}${dep1}`;
+        el.querySelector('.b0').style.width = Math.min(50, dep0 / 20) + '%'; el.querySelector('.b1').style.width = Math.min(50, dep1 / 20) + '%';
+        el.querySelector('.h0').style.width = Math.min(50, (dep0 + held0) / 20) + '%'; el.querySelector('.h1').style.width = Math.min(50, (dep1 + held1) / 20) + '%';
     }
     // --- items under each champion's portrait in the viewer's team bars -----------------------------------------------
     let itemIcons = null, itemIconsLoading = false;
@@ -2424,30 +2430,54 @@
         let m = 0; for (let rr = r - 120; rr <= r; rr += 2) { const h = cam.hp?.get(rr); if (h && h[i] > m) m = h[i]; }
         cam.maxHpCache.set(k, m); return m;
     }
-    function drawHealthBars(cam, champs, r, frac, P, tile, zoomedOut, now) {
-        const x = ov.cv?.getContext('2d'); if (!x || zoomedOut || !cam.hp) return;
-        let h0 = null; for (let k = 0; k < 6 && !h0; k++) h0 = cam.hp.get(r - k); if (!h0) return;
-        const h1 = cam.hp.get(r + 1) || h0;
-        const W = tile * 1.75, H = Math.max(5, tile * 0.2);
-        for (const ch of champs) {
-            if (!ch.alive) continue;
-            const p = P(ch.x, ch.y); if (!p) continue;
-            const hp = Math.max(0, h0[ch.i] + (h1[ch.i] - h0[ch.i]) * frac), max = Math.max(hp, maxHpAt(cam, ch.i, r)) || 1;
-            const lag = hpLag.get(ch.idx), shown = lag == null || hp > lag ? hp : lag - (lag - hp) * 0.06;
-            hpLag.set(ch.idx, shown);
-            const bx = p.x - W / 2, by = p.y - tile * 1.9 - H / 2; // right over the viewer's own bar
-            x.fillStyle = 'rgba(0,0,0,.85)'; x.fillRect(bx - 1.5, by - 1.5, W + 3, H + 3);
-            x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
-            x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(bx, by, W * Math.min(1, shown / max), H); // recent damage
-            const col = TEAM_RGB[ch.team] || '#ccc', grd = x.createLinearGradient(0, by, 0, by + H);
-            grd.addColorStop(0, col); grd.addColorStop(1, ch.team === 1 ? '#a8261c' : '#1f57b8');
-            x.fillStyle = grd; x.fillRect(bx, by, W * Math.min(1, hp / max), H);
-            const step = max > 4000 ? 500 : 250;
-            for (let v = step; v < max; v += step) {
-                const tx = bx + W * v / max, big = v % 1000 === 0;
-                x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(Math.round(tx), by, big ? 1.6 : 1, big ? H : H * 0.55);
-            }
-        }
+    // Health bars: the viewer's own champion bars (a background + a fill sprite, screen-space, laid out every frame
+    // and tied to each unit) are hidden right after it lays them out, and ours are drawn at exactly those spots in the
+    // same frame, so they move with the units. Ours: bigger, team coloured, a tick every 250 HP and a heavy one every
+    // 1000 (500/heavy every 2000 on very tanky champions), recent damage as a pale chunk draining away.
+    function hookHealthBars(b) {
+        if (!b || b.__cbcHp) return; b.__cbcHp = true;
+        let cv = null;
+        b.on('tick', () => {
+            try {
+                const sc = b.scene, st = b.spritestore, cam = game?.cam; if (!sc?.uiPixelElements) return;
+                const on = bannersOn() && !draft.on && phase !== 'draft';
+                const parts = new Map();
+                for (const e of sc.uiPixelElements) {
+                    const ref = e.depthReference; if (ref?.unitIcon?.healthFraction === undefined) continue; // champions only
+                    const sp = st.resolve(e.sprite); if (!sp || sp.width < 30 || sp.height > 12) continue;   // the 44x8 bar sprites
+                    let p = parts.get(ref); if (!p) parts.set(ref, p = { ref, sp });
+                    if (e.clipInsetPixels != null || e.tint != null) p.fill = e; else p.bg = e;
+                    if (on) e.opacity = 0;
+                }
+                const mc = b.htmlRefs.canvas, rc = mc.getBoundingClientRect(), k = rc.width / b.camera.viewportWidth, dpr = devicePixelRatio || 1;
+                if (!cv || !cv.isConnected) { cv = document.createElement('canvas'); cv.id = 'cbc-hp'; mc.after(cv); }
+                Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
+                if (cv.width !== Math.round(rc.width * dpr)) { cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr); }
+                const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, rc.width, rc.height);
+                if (!on) return;
+                const r = game?.play?.round ?? 0, tr = cam && trackAt(cam, r);
+                for (const p of parts.values()) {
+                    const e = p.fill || p.bg; if (!e || (p.ref.opacity ?? 1) <= 0) continue;
+                    const sx = e.scale?.x ?? 1, sy = e.scale?.y ?? sx;
+                    const cxv = e.position.x + (p.sp.width / 2 - p.sp.anchorX) * sx, cyv = e.position.y + (p.sp.height / 2 - p.sp.anchorY) * sy;
+                    const W = Math.max(30, p.sp.width * sx * 1.45) * k, H = Math.max(5, p.sp.height * sy * 1.6) * k;
+                    const bx = cxv * k - W / 2, by = cyv * k - H / 2;
+                    const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
+                    // which champion: the nearest one to the unit's tile (for team and max HP)
+                    let ci = -1, best = 2.5;
+                    if (tr) cam.order.forEach((idx, i) => { const d = Math.hypot(tr[i * 3] - p.ref.position.x, tr[i * 3 + 1] - p.ref.position.y); if (d < best) { best = d; ci = i; } });
+                    const team = ci >= 0 ? cam.team[ci] : (p.fill?.tint === 3377407 ? 0 : 1), max = ci >= 0 ? (maxHpAt(cam, ci, r) || 1000) : 1000;
+                    const key = ci >= 0 ? cam.order[ci] : p.ref, lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.06; hpLag.set(key, shown);
+                    x.fillStyle = 'rgba(0,0,0,.88)'; x.fillRect(bx - 1.5, by - 1.5, W + 3, H + 3);
+                    x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
+                    x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(bx, by, W * shown, H);
+                    const grd = x.createLinearGradient(0, by, 0, by + H); grd.addColorStop(0, TEAM_RGB[team] || '#ccc'); grd.addColorStop(1, team === 1 ? '#a8261c' : '#1f57b8');
+                    x.fillStyle = grd; x.fillRect(bx, by, W * frac, H);
+                    const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
+                    for (let v = step; v < max; v += step) { const tx = bx + W * v / max, big = v % heavy === 0; x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(Math.round(tx), by, big ? 1.6 : 1, big ? H : H * 0.55); }
+                }
+            } catch { }
+        });
     }
     function groundRings(b, champs, now) {
         const sc = b?.scene, st = b?.spritestore; if (!sc?.tileDecals || !st?.procedural) return;
@@ -2695,7 +2725,7 @@
             let v = 1;
             if (onChamp) {
                 champTokens = Math.max(0, champTokens - 1);
-                v = 0.6 + Math.random() * 0.2; // still under abilities, but clearly there
+                v = 0.68 + Math.random() * 0.17; // still under abilities, but clearly there
                 if (localChamp(type, 'attack', 0.5 * v, spd)) { maybeVoice(type, 'va', 0.07); return; }
                 if (LOCAL_SFX[type]) return; // its own sounds aren't loaded yet: silence, never another champion's stand-in (Sona for Cassi sounded like Seraphine)
                 sfx(t + 'a', { vol: 0.26 * v }); sfx(t + 'am', { vol: 0.3 * v });
@@ -2709,7 +2739,7 @@
             if (Math.random() > keep) return;
             if (TANKS.has(type) || MAGES.has(type)) v = MAGES.has(type) ? 0.8 : 0.85;
             champTokens--;
-            v *= 0.35 + Math.random() * 0.3; // attacks sit well under abilities, each at its own loudness (35-65%)
+            v *= 0.45 + Math.random() * 0.25; // attacks sit well under abilities, each at its own loudness (45-70%)
             if (localChamp(type, 'attack', 0.5 * v, spd)) { maybeVoice(type, 'va', 0.07); return; }
                 if (LOCAL_SFX[type]) return; // its own sounds aren't loaded yet: silence, never another champion's stand-in (Sona for Cassi sounded like Seraphine)
             sfx(t + 'a', { vol: 0.26 * v });
