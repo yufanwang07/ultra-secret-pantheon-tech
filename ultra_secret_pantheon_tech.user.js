@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-28.4
+// @version      2026-10-28.5
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -1028,9 +1028,12 @@
         if (!base) { base = new Audio(src); base.preload = 'auto'; sfxCache.set(src, base); }
         const a = base.readyState >= 2 ? base.cloneNode() : base;
         const pg = near ? nearGain(soundAt?.x, soundAt?.y) : soundAt ? posGain(soundAt.x, soundAt.y) : 1;
-        if (onscreen && soundAt && pg <= 1) return null; // only heard when the spot is on screen
-        a.volume = Math.max(0, Math.min(1, (loud ? volume() : sfxVolume()) * vol * pg));
-        if (near) a._near = { at: soundAt, vol }; // follows the camera while it plays (see tickNear)
+        // on-screen-only sounds (teleports) start silent off screen, and fade up if the camera arrives while they play
+        const g0 = onscreen && soundAt ? (pg > 1 ? pg : 0) : pg;
+        a.volume = Math.max(0, Math.min(1, (loud ? volume() : sfxVolume()) * vol * g0));
+        // every placed sound follows the camera while it plays: a channel or voice line gets louder as the camera
+        // moves onto it (and quieter as it leaves), not just whatever it was when it started
+        if (soundAt) a._track = { at: soundAt, vol, loud, mode: near ? 'near' : onscreen ? 'onscreen' : 'pos' };
         a.playbackRate = Math.max(0.5, Math.min(4, rate));
         a.preservesPitch = false;
         a.dataset.tag = tag || '';
@@ -1933,7 +1936,7 @@
                 return Math.abs(fa.cx - fb2.cx) > vw / 2 + fb2.w / 2 + 2 || Math.abs(fa.cy - fb2.cy) > vh / 2 + fb2.h / 2 + 2; };
             let bad = -1; for (let r = s0; r <= e0; r += 2) if (!clear(r)) { bad = r; break; }
             if (bad >= 0) { e0 = bad - 4; promote = false; }
-            if (e0 - s0 < D.minLen) continue;
+            if (e0 - s0 < D.minLen || s0 < 45) continue; // never in the opening seconds
             const jitter = (((s0 * 2654435761) >>> 0) % 40); // variety, but the same plan every viewing
             cands.push({ A, B, s: s0, e: e0, promoteAt: promote ? a1 - 2 : null, mode, score: (mode === 'split' ? 120 : 0) + A.pri + B.pri + jitter });
         }
@@ -1997,6 +2000,10 @@
         if (r !== cine.round) { cine.round = r; cine.roundAt = now; }
         const frac = playing ? Math.min(1, (now - cine.roundAt) / 1000 * Math.max(0.5, roundsPerSec)) : 0;
         const prevShot = cine.shot, prevPassive = cine.passive?.key, fast = cinemaFast();
+        // the first seconds of a game: a slow establishing move down from the map overview (no cuts or quick pans)
+        if (r <= 3 && !cine.openArmed) { cine.openArmed = true; cine.openStart = now; }
+        if (r > 60) cine.openArmed = false;
+        const opening = cine.openArmed ? Math.min(1, (now - cine.openStart) / 9000) : 1; // 0 -> 1 over ~9 s
         // two-camera segments are planned; outside them it's one camera
         const seg = !fast && roundsPerSec < 16 ? (cine.dual || []).find(d => r >= d.s && r < d.e) : null;
         const promoted = !!seg && seg.promoteAt != null && r >= seg.promoteAt;
@@ -2033,7 +2040,7 @@
         const f0 = frameAt(game.cam, shot, r), f1 = frameAt(game.cam, shot, r + 1);
         // nobody left to frame (everyone in it died or left): hold where we were rather than flying back to the map overview
         const f = (f0 && f1 ? lerpFrame(f0, f1, frac) : f0 || f1) || (shot ? cine.lastF : null);
-        if (f) cine.lastF = f;
+        if (f) { cine.lastF = f; cine.targetView = { x0: f.cx - f.w * 0.65, x1: f.cx + f.w * 0.65, y0: f.cy - f.h * 0.8, y1: f.cy + f.h * 0.6, at: performance.now() }; }
         const fr2 = (s2, rr) => { const a = frameAt(game.cam, s2, rr), z = frameAt(game.cam, s2, rr + 1); return a && z ? lerpFrame(a, z, frac) : a || z; };
         const fb = second && fr2(second, r);
         if (seg && second && fb && !seg.closed) { const v = visibleTiles(); if (v) { const w = v.x1 - v.x0, h = v.y1 - v.y0;
@@ -2064,7 +2071,7 @@
         // the live target). Long switches (well over a screen away, or a big zoom change): League's spectator cut:
         // gently build speed toward the new spot, cut to just short of it keeping that speed, then glide to a stop.
         const dist = Math.hypot(tgt.x - here.x, tgt.y - here.y), dz = Math.abs(tgt.z - Math.log(here.d));
-        if (switched && f && far && !cine.whip) {
+        if (switched && f && far && !cine.whip && opening >= 1) {
             const from = { x: here.x, y: here.y, z: Math.log(here.d) };
             if (dist > 1.3 * viewW || dz > 1.4) {
                 const dir = { x: (tgt.x - here.x) / (dist || 1e-6), y: (tgt.y - here.y) / (dist || 1e-6) };
@@ -2100,9 +2107,9 @@
             return;
         }
         // smooth the target itself, then chase it with a critically damped spring (eases in, glides, eases out)
-        const spd = Math.max(1, Math.min(4, roundsPerSec / 4)) * (fast ? 2.5 : 1);
+        const spd = Math.max(1, Math.min(4, roundsPerSec / 4)) * (fast ? 2.5 : 1) * (0.12 + 0.88 * opening * opening);
         cine.tf ||= { x: here.x, y: here.y, z: Math.log(here.d) };
-        const kt = 1 - Math.exp(-dt / (fast ? 0.3 : 0.6));
+        const kt = 1 - Math.exp(-dt / ((fast ? 0.3 : 0.6) + 2.2 * (1 - opening)));
         for (const k of ['x', 'y', 'z']) cine.tf[k] += (tgt[k] - cine.tf[k]) * kt;
         const cur = { x: here.x, y: here.y, z: Math.log(here.d) };
         for (const k of ['x', 'y', 'z']) {
@@ -2453,20 +2460,30 @@
     }
     // For sounds you should only hear up close (recalls): next to silent unless the spot is on screen and the camera
     // is zoomed in on it. Full volume at about 22 tiles across or closer, fading out by about 40.
-    function nearGain(x, y) {
+    // Sound physics: a sound is judged against what's on screen now AND, with the cinema camera on, where the camera
+    // is heading (its target framing), so something the camera is about to move onto is already heard properly.
+    const aheadView = () => cinemaOn() && cine.targetView && performance.now() - cine.targetView.at < 1000 ? cine.targetView : null;
+    function nearGainIn(v, x, y) {
         const faint = 0.04;
-        if (x == null || x < 0 || y < 0) return faint;
-        const v = visibleTiles(); if (!v) return faint;
         if (x < v.x0 - 1 || x > v.x1 + 1 || y < v.y0 - 1 || y > v.y1 + 1) return 0;
         const w = Math.max(v.x1 - v.x0, (v.y1 - v.y0) * 1.2);
         return faint + (1 - faint) * Math.max(0, Math.min(1, (40 - w) / 18));
     }
-    function posGain(x, y) {
-        if (x == null || x < 0 || y < 0) return 1;
-        const v = visibleTiles(); if (!v) return 1;
+    function nearGain(x, y) {
+        const faint = 0.04;
+        if (x == null || x < 0 || y < 0) return faint;
+        const v = visibleTiles(), t = aheadView(); if (!v && !t) return faint;
+        return Math.max(v ? nearGainIn(v, x, y) : 0, t ? nearGainIn(t, x, y) : 0);
+    }
+    function posGainIn(v, x, y) {
         const w = Math.max(4, v.x1 - v.x0), hgt = Math.max(4, v.y1 - v.y0);
         const out = Math.max(0, (v.x0 - x) / w, (x - v.x1) / w, (v.y0 - y) / hgt, (y - v.y1) / hgt);
         return out === 0 ? 1.15 : Math.max(0.12, 1 - out * 1.8);
+    }
+    function posGain(x, y) {
+        if (x == null || x < 0 || y < 0) return 1;
+        const v = visibleTiles(), t = aheadView(); if (!v && !t) return 1;
+        return Math.max(v ? posGainIn(v, x, y) : 0, t ? posGainIn(t, x, y) : 0);
     }
     let soundAt = null; // position of the sound being played right now (set around champion/step sounds)
     function stopSfx(tag) { for (const a of live) if (a.dataset.tag === tag) { a.pause(); live.delete(a); } }
@@ -2639,7 +2656,10 @@
     }
     setInterval(tickAmbience, 700);
     // zooming onto (or away from) a recalling champion brings its recall up (or down) while it plays
-    setInterval(() => { for (const a of live) if (a._near) a.volume = Math.max(0, Math.min(1, sfxVolume() * a._near.vol * nearGain(a._near.at?.x, a._near.at?.y))); }, 250);
+    setInterval(() => { for (const a of live) { const t = a._track; if (!t) continue;
+        const g = t.mode === 'near' ? nearGain(t.at.x, t.at.y) : t.mode === 'onscreen' ? (posGain(t.at.x, t.at.y) > 1 ? 1.15 : 0) : posGain(t.at.x, t.at.y);
+        const want = Math.max(0, Math.min(1, (t.loud ? volume() : sfxVolume()) * t.vol * g));
+        a.volume += (want - a.volume) * 0.5; } }, 200); // eased, so it swells rather than steps
     // Step kinds the viewer names (PanelChrome Cr): 5 Attack, 6 Cast ability, 11 Recall, 12 Submit gems, 13 Shop,
     // 16 Cancel channel, 18 Gems submitted, 21 Teleport channel, 22 Teleport complete
     const STEP_SFX = new Set([1, 2, 4, 5, 6, 11, 13, 16, 18, 21, 22]); // 1 respawn, 2 camp capture, 4 move (only to see recalls broken), 22 teleport arrives
