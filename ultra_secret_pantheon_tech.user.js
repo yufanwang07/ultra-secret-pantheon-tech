@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.6
+// @version      2026-10-30.7
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2434,7 +2434,7 @@
     // and tied to each unit) are hidden right after it lays them out, and ours are drawn at exactly those spots in the
     // same frame, so they move with the units. Ours: bigger, team coloured, a tick every 250 HP and a heavy one every
     // 1000 (500/heavy every 2000 on very tanky champions), recent damage as a pale chunk draining away.
-    const hpPrev = new Map(), hpHeal = new Map(), HEAL_MS = 450;
+    const hpPrev = new Map(), hpHeal = new Map(), HEAL_MS = 220;
     // A League-style bar: dark frame with a faint bronze rim, team fill with a lit top edge, ticks hanging from the
     // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, yellow to
     // orange on red, orange to yellow on blue, its far end blurring out), recent healing flashes green and fades.
@@ -2463,9 +2463,10 @@
             sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, 'rgba(255,240,200,.35)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
             x.fillStyle = sg; x.fillRect(f0 - sw / 2, by, sw, H); }
         if (heal) { const t = (now - heal.t0) / HEAL_MS;
-            if (t < 1 && frac > heal.from) { x.globalAlpha = 1 - t * t; const hg = x.createLinearGradient(0, by, 0, by + H);
-                hg.addColorStop(0, '#9cf27a'); hg.addColorStop(1, '#2f9b2a'); x.fillStyle = hg;
-                x.fillRect(bx + W * heal.from, by, W * (frac - heal.from), H); x.globalAlpha = 1; } }
+            if (t < 1 && frac > heal.from) { // a quick green pulse back to the team colour: light at the ends, dark in the middle
+                const h0 = bx + W * heal.from, hw = W * (frac - heal.from), hg = x.createLinearGradient(h0, 0, h0 + hw, 0);
+                hg.addColorStop(0, '#b6f78f'); hg.addColorStop(0.5, '#2f9b2a'); hg.addColorStop(1, '#b6f78f');
+                x.globalAlpha = 1 - t; x.fillStyle = hg; x.fillRect(h0, by, hw, H); x.globalAlpha = 1; } }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
         const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
         for (let v = step; v < max; v += step) { const tx = bx + W * v / max, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
@@ -2530,7 +2531,7 @@
                     const bx = cxv * k - W / 2, by = cyv * k - H / 2;
                     const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
                     const team = cam.team[ci], max = maxHpAt(cam, ci, r) || 1000;
-                    const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.06; hpLag.set(key, shown);
+                    const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.16; hpLag.set(key, shown);
                     // healing: League shows the healed part as a green block that fades back to the team colour
                     const now = performance.now(), prev = hpPrev.get(key); hpPrev.set(key, frac);
                     if (prev != null && frac > prev + 0.002) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { from: live ? Math.min(h.from, prev) : prev, t0: now }); }
