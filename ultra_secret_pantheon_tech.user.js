@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.5
+// @version      2026-10-30.6
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2434,10 +2434,10 @@
     // and tied to each unit) are hidden right after it lays them out, and ours are drawn at exactly those spots in the
     // same frame, so they move with the units. Ours: bigger, team coloured, a tick every 250 HP and a heavy one every
     // 1000 (500/heavy every 2000 on very tanky champions), recent damage as a pale chunk draining away.
-    const hpPrev = new Map(), hpHeal = new Map(), HEAL_MS = 900;
+    const hpPrev = new Map(), hpHeal = new Map(), HEAL_MS = 450;
     // A League-style bar: dark frame with a faint bronze rim, team fill with a lit top edge, ticks hanging from the
-    // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, orange to
-    // yellow on red, yellow to orange on blue, its far end blurring out), recent healing flashes green and fades.
+    // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, yellow to
+    // orange on red, orange to yellow on blue, its far end blurring out), recent healing flashes green and fades.
     function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now) {
         const red = team === 1;
         x.fillStyle = '#050608'; x.fillRect(bx - edge * 1.6, by - edge * 1.6, W + edge * 3.2, H + edge * 3.2);
@@ -2446,10 +2446,10 @@
         x.fillStyle = '#0c0e12'; x.fillRect(bx, by, W, H);
         const f0 = bx + W * frac, chunk = shown - frac;
         if (chunk > 0.001) {
-            const cw = W * chunk, big = chunk > 0.12;
+            const cw = W * chunk, big = chunk > 0.3;
             let fill;
             if (big) { fill = x.createLinearGradient(f0, 0, f0 + cw, 0);
-                const a = red ? '#ee8a2e' : '#f5d957', b = red ? '#f5d957' : '#ee8a2e';
+                const a = red ? '#f5d957' : '#ee8a2e', b = red ? '#ee8a2e' : '#f5d957';
                 fill.addColorStop(0, a); fill.addColorStop(0.78, b); fill.addColorStop(1, 'rgba(12,14,18,0)'); }
             else fill = red ? '#f2d24c' : '#d2392b';
             x.fillStyle = fill; x.fillRect(f0, by, cw, H);
@@ -2523,9 +2523,9 @@
                     const e = p.fill || p.bg; if (!e || (p.ref.opacity ?? 1) <= 0) continue;
                     const sx = e.scale?.x ?? 1, sy = e.scale?.y ?? sx;
                     const cxv = e.position.x + (p.sp.width / 2 - p.sp.anchorX) * sx, cyv = e.position.y + (p.sp.height / 2 - p.sp.anchorY) * sy;
-                    // a little thinner the further in we zoom (1.6x the viewer's bar at the icon switch, 1.3x fully in)
+                    // a little thinner the further in we zoom (1.45x the viewer's bar height at the icon switch, 1.2x fully in)
                     const zin = Math.min(1, Math.max(0, (ppt - HP_THICK_PPT) / 36));
-                    const W = Math.max(33, p.sp.width * sx * 1.6) * k, H = Math.max(4.5, p.sp.height * sy * (1.6 - 0.3 * zin)) * k;
+                    const W = Math.max(36, p.sp.width * sx * 1.75) * k, H = Math.max(4.2, p.sp.height * sy * (1.45 - 0.25 * zin)) * k;
                     const edge = Math.max(1, H * 0.13); // outline and tick widths follow the bar's height
                     const bx = cxv * k - W / 2, by = cyv * k - H / 2;
                     const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
