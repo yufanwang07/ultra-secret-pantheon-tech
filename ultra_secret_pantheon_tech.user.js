@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.3
+// @version      2026-10-30.4
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2496,7 +2496,9 @@
                     const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.06; hpLag.set(key, shown);
                     x.fillStyle = 'rgba(0,0,0,.88)'; x.fillRect(bx - edge, by - edge, W + 2 * edge, H + 2 * edge);
                     x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
-                    x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(bx, by, W * shown, H);
+                    // recent damage: League's yellow-orange chunk draining away (white/grey reads as a shield)
+                    if (shown > frac) { const dg = x.createLinearGradient(0, by, 0, by + H); dg.addColorStop(0, '#ffd75a'); dg.addColorStop(1, '#e8892a');
+                        x.fillStyle = dg; x.fillRect(bx + W * frac, by, W * (shown - frac), H); }
                     const grd = x.createLinearGradient(0, by, 0, by + H); grd.addColorStop(0, TEAM_RGB[team] || '#ccc'); grd.addColorStop(1, team === 1 ? '#a8261c' : '#1f57b8');
                     x.fillStyle = grd; x.fillRect(bx, by, W * frac, H);
                     const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
