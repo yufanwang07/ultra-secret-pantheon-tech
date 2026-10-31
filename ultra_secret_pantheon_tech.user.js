@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.9
+// @version      2026-10-30.10
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2438,7 +2438,8 @@
     // A League-style bar: dark frame with a faint bronze rim, team fill with a lit top edge, ticks hanging from the
     // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, yellow to
     // orange on red, orange to yellow on blue, its far end blurring out), recent healing flashes green and fades.
-    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, shield = 0) {
+    const shLag = new Map(); // champion -> { v: shield fraction still drawn, t0: when it started going }
+    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, shield = 0, shGone = null) {
         const red = team === 1;
         x.fillStyle = '#050608'; x.fillRect(bx - edge * 1.6, by - edge * 1.6, W + edge * 3.2, H + edge * 3.2);
         x.strokeStyle = 'rgba(176,152,104,.55)'; x.lineWidth = Math.max(1, edge * 0.6);
@@ -2470,6 +2471,10 @@
         if (shield > 0.001) { // shields: League's grey-white block right after the health
             const s0 = bx + W * frac, sw = W * Math.min(shield, 1 - frac), sg = x.createLinearGradient(0, by, 0, by + H);
             sg.addColorStop(0, '#f4f4f2'); sg.addColorStop(1, '#a9adb3'); x.fillStyle = sg; x.fillRect(s0, by, sw, H); }
+        if (shGone && shGone.v > shield) { // the lost shield: a white pulse fading while it shrinks back
+            const g0 = bx + W * Math.min(1, frac + shield), gw = W * Math.max(0, Math.min(1, frac + shGone.v) - Math.min(1, frac + shield));
+            const t = (now - shGone.t0) / 400; x.globalAlpha = Math.max(0.15, 0.95 - 0.8 * t) * (0.75 + 0.25 * Math.sin(now / 45));
+            x.fillStyle = '#ffffff'; x.fillRect(g0, by, gw, H); x.globalAlpha = 1; }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
         const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
         for (let v = step; v < max; v += step) { const tx = bx + W * v / max, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
@@ -2552,7 +2557,10 @@
                     if (prev != null && hpNow != null && hpNow > prev + 0.5) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { fromHp: live ? Math.min(h.fromHp, prev) : prev, t0: now }); }
                     const hl = hpHeal.get(key), heal = hl && ppH ? { from: Math.max(0, frac - (hpNow - hl.fromHp) * ppH), t0: hl.t0 } : null;
                     const sh = p.shield && p.shield.visible !== false ? Math.max(0, (p.shield.clipRight ?? 0) - (p.shield.clipLeft ?? 0)) : 0;
-                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh);
+                    // a lost shield doesn't vanish: the gone part pulses white and shrinks away like the damage trail
+                    const sl = shLag.get(key), shGone = sl && sl.v > sh + 0.001 ? { v: sl.v - (sl.v - sh) * 0.12, t0: sl.t0 ?? now } : null;
+                    shLag.set(key, shGone ? shGone : { v: sh, t0: null });
+                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone);
                 }
             } catch { }
         });
