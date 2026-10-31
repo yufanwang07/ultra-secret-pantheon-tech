@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.8
+// @version      2026-10-30.9
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2541,12 +2541,18 @@
                     const bx = cxv * k - W / 2, by = cyv * k - H / 2;
                     const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
                     const team = cam.team[ci], max = maxHpAt(cam, ci, r) || 1000;
-                    const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.16; hpLag.set(key, shown);
+                    // Damage trail and heal flash follow the champion's real HP, not the fill: the viewer (like League)
+                    // squeezes the whole bar when health + shield passes max HP, which moved the fill with no damage taken.
+                    const key = cam.order[ci], hpNow = atRound(cam.hp, r)?.[ci];
+                    const ppH = hpNow > 0 ? frac / hpNow : 0; // bar fraction per HP at the current squeeze
+                    const lag = hpLag.get(key), lagHp = lag == null || hpNow == null || hpNow > lag ? hpNow : lag - (lag - hpNow) * 0.16; hpLag.set(key, lagHp);
+                    const shown = hpNow == null ? frac : Math.min(1, frac + (lagHp - hpNow) * ppH);
                     // healing: League shows the healed part as a green block that fades back to the team colour
-                    const now = performance.now(), prev = hpPrev.get(key); hpPrev.set(key, frac);
-                    if (prev != null && frac > prev + 0.002) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { from: live ? Math.min(h.from, prev) : prev, t0: now }); }
+                    const now = performance.now(), prev = hpPrev.get(key); if (hpNow != null) hpPrev.set(key, hpNow);
+                    if (prev != null && hpNow != null && hpNow > prev + 0.5) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { fromHp: live ? Math.min(h.fromHp, prev) : prev, t0: now }); }
+                    const hl = hpHeal.get(key), heal = hl && ppH ? { from: Math.max(0, frac - (hpNow - hl.fromHp) * ppH), t0: hl.t0 } : null;
                     const sh = p.shield && p.shield.visible !== false ? Math.max(0, (p.shield.clipRight ?? 0) - (p.shield.clipLeft ?? 0)) : 0;
-                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, hpHeal.get(key), now, sh);
+                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh);
                 }
             } catch { }
         });
