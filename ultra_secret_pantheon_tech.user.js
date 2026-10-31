@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.4
+// @version      2026-10-30.5
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2434,6 +2434,43 @@
     // and tied to each unit) are hidden right after it lays them out, and ours are drawn at exactly those spots in the
     // same frame, so they move with the units. Ours: bigger, team coloured, a tick every 250 HP and a heavy one every
     // 1000 (500/heavy every 2000 on very tanky champions), recent damage as a pale chunk draining away.
+    const hpPrev = new Map(), hpHeal = new Map(), HEAL_MS = 900;
+    // A League-style bar: dark frame with a faint bronze rim, team fill with a lit top edge, ticks hanging from the
+    // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, orange to
+    // yellow on red, yellow to orange on blue, its far end blurring out), recent healing flashes green and fades.
+    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now) {
+        const red = team === 1;
+        x.fillStyle = '#050608'; x.fillRect(bx - edge * 1.6, by - edge * 1.6, W + edge * 3.2, H + edge * 3.2);
+        x.strokeStyle = 'rgba(176,152,104,.55)'; x.lineWidth = Math.max(1, edge * 0.6);
+        x.strokeRect(bx - edge * 1.1, by - edge * 1.1, W + edge * 2.2, H + edge * 2.2);
+        x.fillStyle = '#0c0e12'; x.fillRect(bx, by, W, H);
+        const f0 = bx + W * frac, chunk = shown - frac;
+        if (chunk > 0.001) {
+            const cw = W * chunk, big = chunk > 0.12;
+            let fill;
+            if (big) { fill = x.createLinearGradient(f0, 0, f0 + cw, 0);
+                const a = red ? '#ee8a2e' : '#f5d957', b = red ? '#f5d957' : '#ee8a2e';
+                fill.addColorStop(0, a); fill.addColorStop(0.78, b); fill.addColorStop(1, 'rgba(12,14,18,0)'); }
+            else fill = red ? '#f2d24c' : '#d2392b';
+            x.fillStyle = fill; x.fillRect(f0, by, cw, H);
+        }
+        const g = x.createLinearGradient(0, by, 0, by + H);
+        if (red) { g.addColorStop(0, '#f2584a'); g.addColorStop(0.45, '#c92b22'); g.addColorStop(1, '#851812'); }
+        else { g.addColorStop(0, '#5aa8ff'); g.addColorStop(0.45, '#2a6bd6'); g.addColorStop(1, '#173d8c'); }
+        x.fillStyle = g; x.fillRect(bx, by, W * frac, H);
+        // the soft seam where the fill meets the damage chunk
+        if (chunk > 0.001 && frac > 0) { const sw = Math.min(W * chunk, edge * 3), sg = x.createLinearGradient(f0 - sw / 2, 0, f0 + sw / 2, 0);
+            sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, 'rgba(255,240,200,.35)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+            x.fillStyle = sg; x.fillRect(f0 - sw / 2, by, sw, H); }
+        if (heal) { const t = (now - heal.t0) / HEAL_MS;
+            if (t < 1 && frac > heal.from) { x.globalAlpha = 1 - t * t; const hg = x.createLinearGradient(0, by, 0, by + H);
+                hg.addColorStop(0, '#9cf27a'); hg.addColorStop(1, '#2f9b2a'); x.fillStyle = hg;
+                x.fillRect(bx + W * heal.from, by, W * (frac - heal.from), H); x.globalAlpha = 1; } }
+        x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
+        const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
+        for (let v = step; v < max; v += step) { const tx = bx + W * v / max, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
+            x.fillStyle = 'rgba(0,0,0,.75)'; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
+    }
     const hpOwner = new WeakMap(); // viewer unit (a bar's depthReference) -> champion idx
     const HP_THICK_PPT = 24; // screen px per tile from which our thick bars replace the viewer's (its icon LOD switch)
     function hookHealthBars(b) {
@@ -2494,15 +2531,10 @@
                     const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
                     const team = cam.team[ci], max = maxHpAt(cam, ci, r) || 1000;
                     const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.06; hpLag.set(key, shown);
-                    x.fillStyle = 'rgba(0,0,0,.88)'; x.fillRect(bx - edge, by - edge, W + 2 * edge, H + 2 * edge);
-                    x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
-                    // recent damage: League's yellow-orange chunk draining away (white/grey reads as a shield)
-                    if (shown > frac) { const dg = x.createLinearGradient(0, by, 0, by + H); dg.addColorStop(0, '#ffd75a'); dg.addColorStop(1, '#e8892a');
-                        x.fillStyle = dg; x.fillRect(bx + W * frac, by, W * (shown - frac), H); }
-                    const grd = x.createLinearGradient(0, by, 0, by + H); grd.addColorStop(0, TEAM_RGB[team] || '#ccc'); grd.addColorStop(1, team === 1 ? '#a8261c' : '#1f57b8');
-                    x.fillStyle = grd; x.fillRect(bx, by, W * frac, H);
-                    const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
-                    for (let v = step; v < max; v += step) { const tx = bx + W * v / max, big = v % heavy === 0; const tw = big ? edge * 1.5 : edge * 0.9; x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(tx - tw / 2, by, tw, big ? H : H * 0.55); }
+                    // healing: League shows the healed part as a green block that fades back to the team colour
+                    const now = performance.now(), prev = hpPrev.get(key); hpPrev.set(key, frac);
+                    if (prev != null && frac > prev + 0.002) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { from: live ? Math.min(h.from, prev) : prev, t0: now }); }
+                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, hpHeal.get(key), now);
                 }
             } catch { }
         });
