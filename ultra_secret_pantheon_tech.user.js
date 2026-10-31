@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.7
+// @version      2026-10-30.8
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2438,7 +2438,7 @@
     // A League-style bar: dark frame with a faint bronze rim, team fill with a lit top edge, ticks hanging from the
     // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, yellow to
     // orange on red, orange to yellow on blue, its far end blurring out), recent healing flashes green and fades.
-    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now) {
+    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, shield = 0) {
         const red = team === 1;
         x.fillStyle = '#050608'; x.fillRect(bx - edge * 1.6, by - edge * 1.6, W + edge * 3.2, H + edge * 3.2);
         x.strokeStyle = 'rgba(176,152,104,.55)'; x.lineWidth = Math.max(1, edge * 0.6);
@@ -2467,6 +2467,9 @@
                 const h0 = bx + W * heal.from, hw = W * (frac - heal.from), hg = x.createLinearGradient(h0, 0, h0 + hw, 0);
                 hg.addColorStop(0, '#b6f78f'); hg.addColorStop(0.5, '#2f9b2a'); hg.addColorStop(1, '#b6f78f');
                 x.globalAlpha = 1 - t; x.fillStyle = hg; x.fillRect(h0, by, hw, H); x.globalAlpha = 1; } }
+        if (shield > 0.001) { // shields: League's grey-white block right after the health
+            const s0 = bx + W * frac, sw = W * Math.min(shield, 1 - frac), sg = x.createLinearGradient(0, by, 0, by + H);
+            sg.addColorStop(0, '#f4f4f2'); sg.addColorStop(1, '#a9adb3'); x.fillStyle = sg; x.fillRect(s0, by, sw, H); }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
         const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
         for (let v = step; v < max; v += step) { const tx = bx + W * v / max, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
@@ -2490,7 +2493,14 @@
                     const ref = e.depthReference; if (ref?.unitIcon?.healthFraction === undefined) continue; // units with a bar
                     const sp = st.resolve(e.sprite); if (!sp || sp.width < 30 || sp.height > 12) continue;   // the 44x8 bar sprites
                     let p = parts.get(ref); if (!p) parts.set(ref, p = { ref, sp });
-                    if (e.clipInsetPixels != null || e.tint != null) p.fill = e; else p.bg = e;
+                    // the viewer's bar is a frame plus copies of its fill: the HP fill (pushed first), then damage,
+                    // healing and shield layers. The shield is the near-white one; we draw our own damage/healing.
+                    if (e.clipInsetPixels != null || e.tint != null) {
+                        (p.layers ||= []).push(e);
+                        if (!p.fill) p.fill = e;
+                        else { const t = e.tint ?? 0, cr = t >> 16 & 255, cg = t >> 8 & 255, cb = t & 255;
+                            if (cr > 170 && Math.abs(cr - cg) < 40 && Math.abs(cg - cb) < 40) p.shield = e; }
+                    } else p.bg = e;
                 }
                 // Which bar is whose: a bar keeps the champion it was first matched to (matching by distance every frame
                 // swapped bars between champions fighting side by side, and lost them for a frame on recall jumps);
@@ -2514,7 +2524,7 @@
                     for (const [, p, i] of pairs) if (!claim.has(p) && !taken.has(i)) { claim.set(p, i); taken.add(i); hpOwner.set(p.ref, cam.order[i]); }
                     cam.order.forEach((idx, i) => { if (!alive(i)) hpLag.delete(idx); }); // no stale drain after a death
                 }
-                for (const [p] of claim) for (const e of [p.fill, p.bg]) if (e) e.opacity = 0;
+                for (const [p] of claim) for (const e of [p.bg, ...(p.layers || [])]) if (e) e.opacity = 0;
                 if (!cv || !cv.isConnected) { cv = document.createElement('canvas'); cv.id = 'cbc-hp'; mc.after(cv); }
                 Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
                 if (cv.width !== Math.round(rc.width * dpr)) { cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr); }
@@ -2535,7 +2545,8 @@
                     // healing: League shows the healed part as a green block that fades back to the team colour
                     const now = performance.now(), prev = hpPrev.get(key); hpPrev.set(key, frac);
                     if (prev != null && frac > prev + 0.002) { const h = hpHeal.get(key), live = h && now - h.t0 < HEAL_MS; hpHeal.set(key, { from: live ? Math.min(h.from, prev) : prev, t0: now }); }
-                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, hpHeal.get(key), now);
+                    const sh = p.shield && p.shield.visible !== false ? Math.max(0, (p.shield.clipRight ?? 0) - (p.shield.clipLeft ?? 0)) : 0;
+                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, hpHeal.get(key), now, sh);
                 }
             } catch { }
         });
