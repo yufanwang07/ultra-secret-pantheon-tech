@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.1
+// @version      2026-10-30.3
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2434,6 +2434,7 @@
     // and tied to each unit) are hidden right after it lays them out, and ours are drawn at exactly those spots in the
     // same frame, so they move with the units. Ours: bigger, team coloured, a tick every 250 HP and a heavy one every
     // 1000 (500/heavy every 2000 on very tanky champions), recent damage as a pale chunk draining away.
+    const hpOwner = new WeakMap(); // viewer unit (a bar's depthReference) -> champion idx
     const HP_THICK_PPT = 24; // screen px per tile from which our thick bars replace the viewer's (its icon LOD switch)
     function hookHealthBars(b) {
         if (!b || b.__cbcHp) return; b.__cbcHp = true;
@@ -2453,13 +2454,28 @@
                     let p = parts.get(ref); if (!p) parts.set(ref, p = { ref, sp });
                     if (e.clipInsetPixels != null || e.tint != null) p.fill = e; else p.bg = e;
                 }
-                // each champion claims the bar nearest it; the rest (monsters) keep the viewer's own thin bars
+                // Which bar is whose: a bar keeps the champion it was first matched to (matching by distance every frame
+                // swapped bars between champions fighting side by side, and lost them for a frame on recall jumps);
+                // new bars go to the nearest living champion without one, closest pairs first. Bars nobody alive
+                // claims (monsters, the dead) keep the viewer's own thin bars.
                 const claim = new Map();
-                if (on) cam.order.forEach((idx, i) => {
-                    let bp = null, bd = 2.5;
-                    for (const p of parts.values()) { if (claim.has(p)) continue; const d = Math.hypot(tr[i * 3] - p.ref.position.x, tr[i * 3 + 1] - p.ref.position.y); if (d < bd) { bd = d; bp = p; } }
-                    if (bp) claim.set(bp, i);
-                });
+                if (on) {
+                    const nx = trackAt(cam, r + 1) || tr, alive = i => tr[i * 3 + 2] === 1;
+                    const dist = (p, i) => Math.min(Math.hypot(tr[i * 3] - p.ref.position.x, tr[i * 3 + 1] - p.ref.position.y),
+                        Math.hypot(nx[i * 3] - p.ref.position.x, nx[i * 3 + 1] - p.ref.position.y));
+                    const taken = new Set(), byIdx = new Map(cam.order.map((idx, i) => [idx, i]));
+                    for (const p of parts.values()) {
+                        const idx = hpOwner.get(p.ref), i = byIdx.get(idx);
+                        if (i == null || !alive(i) || taken.has(i)) { hpOwner.delete(p.ref); continue; }
+                        claim.set(p, i); taken.add(i);
+                    }
+                    const pairs = [];
+                    for (const p of parts.values()) if (!claim.has(p)) cam.order.forEach((idx, i) => {
+                        if (!taken.has(i) && alive(i)) { const d = dist(p, i); if (d < 2.5) pairs.push([d, p, i]); } });
+                    pairs.sort((u, v) => u[0] - v[0]);
+                    for (const [, p, i] of pairs) if (!claim.has(p) && !taken.has(i)) { claim.set(p, i); taken.add(i); hpOwner.set(p.ref, cam.order[i]); }
+                    cam.order.forEach((idx, i) => { if (!alive(i)) hpLag.delete(idx); }); // no stale drain after a death
+                }
                 for (const [p] of claim) for (const e of [p.fill, p.bg]) if (e) e.opacity = 0;
                 if (!cv || !cv.isConnected) { cv = document.createElement('canvas'); cv.id = 'cbc-hp'; mc.after(cv); }
                 Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
@@ -2470,18 +2486,21 @@
                     const e = p.fill || p.bg; if (!e || (p.ref.opacity ?? 1) <= 0) continue;
                     const sx = e.scale?.x ?? 1, sy = e.scale?.y ?? sx;
                     const cxv = e.position.x + (p.sp.width / 2 - p.sp.anchorX) * sx, cyv = e.position.y + (p.sp.height / 2 - p.sp.anchorY) * sy;
-                    const W = Math.max(33, p.sp.width * sx * 1.6) * k, H = Math.max(5, p.sp.height * sy * 1.6) * k;
+                    // a little thinner the further in we zoom (1.6x the viewer's bar at the icon switch, 1.3x fully in)
+                    const zin = Math.min(1, Math.max(0, (ppt - HP_THICK_PPT) / 36));
+                    const W = Math.max(33, p.sp.width * sx * 1.6) * k, H = Math.max(4.5, p.sp.height * sy * (1.6 - 0.3 * zin)) * k;
+                    const edge = Math.max(1, H * 0.13); // outline and tick widths follow the bar's height
                     const bx = cxv * k - W / 2, by = cyv * k - H / 2;
                     const frac = Math.max(0, Math.min(1, p.fill ? (p.fill.clipRight ?? 1) : 1));
                     const team = cam.team[ci], max = maxHpAt(cam, ci, r) || 1000;
                     const key = cam.order[ci], lag = hpLag.get(key), shown = lag == null || frac > lag ? frac : lag - (lag - frac) * 0.06; hpLag.set(key, shown);
-                    x.fillStyle = 'rgba(0,0,0,.88)'; x.fillRect(bx - 1.5, by - 1.5, W + 3, H + 3);
+                    x.fillStyle = 'rgba(0,0,0,.88)'; x.fillRect(bx - edge, by - edge, W + 2 * edge, H + 2 * edge);
                     x.fillStyle = '#1b1e24'; x.fillRect(bx, by, W, H);
                     x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(bx, by, W * shown, H);
                     const grd = x.createLinearGradient(0, by, 0, by + H); grd.addColorStop(0, TEAM_RGB[team] || '#ccc'); grd.addColorStop(1, team === 1 ? '#a8261c' : '#1f57b8');
                     x.fillStyle = grd; x.fillRect(bx, by, W * frac, H);
                     const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
-                    for (let v = step; v < max; v += step) { const tx = bx + W * v / max, big = v % heavy === 0; x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(Math.round(tx), by, big ? 1.6 : 1, big ? H : H * 0.55); }
+                    for (let v = step; v < max; v += step) { const tx = bx + W * v / max, big = v % heavy === 0; const tw = big ? edge * 1.5 : edge * 0.9; x.fillStyle = 'rgba(0,0,0,.8)'; x.fillRect(tx - tw / 2, by, tw, big ? H : H * 0.55); }
                 }
             } catch { }
         });
