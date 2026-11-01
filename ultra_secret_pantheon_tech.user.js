@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-10-30.10
+// @version      2026-11-01.1
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2700,12 +2700,40 @@
         const wt = game?.cam?.tribs?.find(t => t.win), wc = wt && game.cam.order.indexOf(wt.actor), wa = wt && trackAt(game.cam, wt.end - 1);
         if (wa && wc >= 0) { cx = wa[wc * 3]; cy = wa[wc * 3 + 1]; } // where the tributing champion stood
         if (m) { let bd = Infinity; for (const [key, c] of m.cells) if (c.kind === 'ALTAR') { const [i, j] = key.split(',').map(Number), d = Math.hypot(i - cx, j - cy); if (d < bd) { bd = d; cx = i; cy = j; } } }
+        const far = m ? floodDist(tiles, cx, cy) : null;
         const decals = tiles.map(([i, j]) => {
             const d = { sprite: tex.sprite, position: { x: i, y: j }, scale: { x: 5.08, y: 6.35 }, visible: false, tint: 0, opacity: 1 };
             sc.tileDecals.push(d);
-            return { d, dist: Math.hypot(i - cx, j - cy), shade: ((i * 7 + j * 13) % 5) / 5 };
+            return { d, dist: far?.get(i + ',' + j) ?? Math.hypot(i - cx, j - cy), shade: ((i * 7 + j * 13) % 5) / 5 };
         });
         ending.fx = { t0: performance.now(), team, decals, tex, sc };
+    }
+    // how far the end pulse has to travel to each floor tile: a flood fill out from the altar through passable
+    // terrain only (8-way, diagonals cost sqrt 2 and can't cut a wall corner), so it pours round walls and down
+    // corridors instead of growing as a circle. Tiles it can't reach keep their straight-line distance, pushed
+    // back behind everything it can.
+    function floodDist(tiles, cx, cy) {
+        const open = new Set(tiles.map(([i, j]) => i + ',' + j)), dist = new Map(), heap = [];
+        const push = (d, i, j) => { heap.push([d, i, j]); for (let k = heap.length - 1; k > 0;) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+        const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; for (let k = 0; ;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+        // the altar itself isn't floor: start from the floor tiles around it
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if ((di || dj) && open.has((cx + di) + ',' + (cy + dj))) push(Math.hypot(di, dj), cx + di, cy + dj);
+        if (!heap.length) for (const [i, j] of tiles) push(Math.hypot(i - cx, j - cy), i, j); // no floor by it: fall back to nearest
+        while (heap.length) {
+            const [d, i, j] = pop(), key = i + ',' + j;
+            if (dist.has(key)) continue;
+            dist.set(key, d);
+            for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+                if (!di && !dj) continue;
+                const ni = i + di, nj = j + dj, nk = ni + ',' + nj;
+                if (!open.has(nk) || dist.has(nk)) continue;
+                if (di && dj && !(open.has(ni + ',' + j) && open.has(i + ',' + nj))) continue;
+                push(d + (di && dj ? Math.SQRT2 : 1), ni, nj);
+            }
+        }
+        let max = 0; for (const d of dist.values()) max = Math.max(max, d);
+        for (const [i, j] of tiles) { const key = i + ',' + j; if (!dist.has(key)) dist.set(key, max + 2 + Math.hypot(i - cx, j - cy) * 0.25); }
+        return dist;
     }
     function clearEndFx(fx) {
         const set = new Set(fx.decals.map(x => x.d));
