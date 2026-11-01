@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.5
+// @version      2026-11-01.6
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -949,7 +949,7 @@
 #cbc-tab .cn i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px dashed #3a3226; border-radius: 3px; box-sizing: border-box; }
 #cbc-tab .cn i.on { border: 1px solid #6b5a36; }
 #cbc-tab .cn i s { position: absolute; right: -1px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
-#cbc-tab .gm { font: 700 12px 'IBM Plex Mono', monospace; text-align: center; color: #c79bff; }
+#cbc-tab .gm { font: 700 12px 'IBM Plex Mono', monospace; text-align: center; color: #c79bff; } #cbc-tab .gm.z { color: #5d4d72; }
 #cbc-tab .row + .row { border-top: 1px solid rgba(120,90,40,.35); }
 #cbc-tab .it { display: flex; gap: 3px; } #cbc-tab .it.l { justify-content: flex-end; }
 #cbc-tab .it i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px solid #3a3226; border-radius: 3px; box-sizing: border-box; }
@@ -973,7 +973,7 @@
 #cbc-inv i.new { box-shadow: 0 0 0 1px #000, 0 0 0 2px #e8c66a, 0 0 6px #e8c66a; }
 #cbc-inv s { position: absolute; right: -2px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 #cbc-ov .tparrow { position: absolute; left: 0; top: 0; image-rendering: pixelated; filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
-#cbc-fx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147482997; pointer-events: none; }
+#cbc-fx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2147482995; pointer-events: none; }
 .cbc-death { position: absolute; left: 0; top: 0; will-change: transform; }
 .cbc-death canvas { position: absolute; image-rendering: pixelated; left: 0; top: 0; }
 .cbc-death .beam { width: calc(var(--t) * 21 / 40); height: calc(var(--t) * 5); transform: translate(-50%, -100%); }
@@ -1807,6 +1807,7 @@
             shots.push({ kind: 'tp', s: t.r1 - 3, e: t.r2 - 1, ppl: P(t.actor), deaths: new Map(), pri: 45, minW: 11, noLook: true });
             shots.push({ kind: 'tp', s: t.r2, e: t.r2 + 6, ppl: P(t.actor), deaths: new Map(), pri: 45, minW: 13, cutIn: true });
         }
+        planAmbushes(g, shots);
         shots.sort((a, b) => a.s - b.s);
         // champion activity (attacking camps / casting at them) for the passive director
         cam.act = new Map();
@@ -1814,6 +1815,86 @@
         return shots;
     }
     const cheb = (ax, ay, bx, by) => Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+    // --- ambushes: an enemy the victim can't see (in a bush, behind a wall, out of range) closes in after a quiet
+    // stretch and attacks. The shot comes in tight on the approach, and for a while shows the map through the
+    // victim's own eyes (the viewer's per-champion fog of war) so you see them walk past not knowing. Vision rules
+    // (handbook): 8 tiles, walls and bushes block sight, a bush you stand in is see-through for you, vision isn't shared.
+    function visionModel() {
+        const m = viewerMap(); if (!m) return null;
+        if (m._vis) return m._vis;
+        const kind = new Map(); for (const [k, c] of m.cells) kind.set(k, c.kind);
+        const bushId = new Map(); let n = 0;
+        for (const [k, kd] of kind) { if (kd !== 'BUSH' || bushId.has(k)) continue; n++; const st = [k]; bushId.set(k, n);
+            while (st.length) { const [i, j] = st.pop().split(',').map(Number);
+                for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const q = (i + di) + ',' + (j + dj); if (kind.get(q) === 'BUSH' && !bushId.has(q)) { bushId.set(q, n); st.push(q); } } } }
+        return (m._vis = { kind, bushId });
+    }
+    function sees(vm, vx, vy, tx, ty) {
+        if (cheb(vx, vy, tx, ty) > 8) return false;
+        const own = vm.bushId.get(vx + ',' + vy), tb = vm.bushId.get(tx + ',' + ty);
+        if (tb && tb !== own) return false;
+        const steps = Math.max(Math.abs(tx - vx), Math.abs(ty - vy));
+        for (let k = 1; k < steps; k++) {
+            const x = Math.round(vx + (tx - vx) * k / steps), y = Math.round(vy + (ty - vy) * k / steps), q = x + ',' + y, kd = vm.kind.get(q);
+            if (kd === 'WALL') return false;
+            if (kd === 'BUSH' && vm.bushId.get(q) !== own) return false;
+        }
+        return true;
+    }
+    function planAmbushes(g, shots) {
+        const cam = g.cam, vm = visionModel(); if (!vm || !cam.hits?.length) return;
+        const pos = (r, idx) => { const a = trackAt(cam, r), i = cam.order.indexOf(idx); return a && i >= 0 && a[i * 3 + 2] === 1 ? [a[i * 3], a[i * 3 + 1]] : null; };
+        const deathOf = (idx, r) => { for (const ev of g.index) if (ev.round >= r && ev.round <= r + 40) for (const k of ev.kills) if (k.victim.idx === idx || (k.victim.duo && isDuo(g.roster?.find(c => c.idx === idx)?.type) && k.victim.team === cam.team[cam.order.indexOf(idx)])) return ev.round; return null; };
+        let last = -999;
+        for (const h of cam.hits) {
+            if (h.round - last < 60) continue;
+            // a quiet stretch before: no hits involving either of them for 30 rounds
+            if (cam.hits.some(o => o !== h && o.round < h.round && o.round >= h.round - 30 && [o.a, o.v].some(x => x === h.a || x === h.v))) continue;
+            // the attacker was close (stalking or camping) but out of the victim's sight for the rounds before
+            let hidden = 0, close = 0, start = h.round;
+            for (let r = h.round - 1; r >= h.round - 20; r--) {
+                const A = pos(r, h.a), V = pos(r, h.v); if (!A || !V) break;
+                if (sees(vm, V[0], V[1], A[0], A[1])) break;
+                hidden++; if (cheb(A[0], A[1], V[0], V[1]) <= 11) { close++; start = r; }
+            }
+            if (hidden < 6 || close < 5) continue;
+            const A = pos(h.round, h.a), V = pos(h.round, h.v);
+            const seenAtHit = A && V && sees(vm, V[0], V[1], A[0], A[1]), death = deathOf(h.v, h.round);
+            const on = Math.max(h.round - hidden, start) + 2;
+            let off = seenAtHit ? h.round + 4 : h.round - 2; if (death != null) off = Math.min(off, death - 1);
+            if (off - on < 4) continue;
+            const team = cam.team[cam.order.indexOf(h.v)];
+            shots.push({ kind: 'ambush', s: on - 6, e: h.round + 10, ppl: new Set([h.a, h.v]), deaths: new Map(death != null ? [[h.v, death]] : []), pri: 150, minW: 9,
+                fog: { team, champion: h.v, on, off } });
+            last = h.round;
+        }
+    }
+    // the viewer's controller (perspective = {team, champion}; team 2 is the spectator view with no fog)
+    let ctrlRef = null, ctrlLook = 0;
+    function findController() {
+        if (ctrlRef?.setPerspective) return ctrlRef;
+        if (performance.now() - ctrlLook < 3000) return null; ctrlLook = performance.now();
+        for (const el of document.querySelectorAll('canvas, button[aria-label^="Follow "], main *')) {
+            const k = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
+            for (let f = k && el[k], n = 0; f && n < 60; f = f.return, n++) {
+                const p = f.memoizedProps; if (!p || typeof p !== 'object') continue;
+                for (const v of Object.values(p)) if (v && typeof v === 'object' && typeof v.setPerspective === 'function' && v.perspective) return (ctrlRef = v);
+            }
+        }
+        return null;
+    }
+    const fogState = { on: null, prev: null };
+    function ambushFog(r) {
+        const shot = cinemaOn() ? cine.shot : null, f = shot?.kind === 'ambush' ? shot.fog : null;
+        const want = f && r >= f.on && r < f.off ? f : null;
+        if (want === fogState.on) return;
+        const ctrl = findController(); if (!ctrl) return;
+        try {
+            if (want) { if (!fogState.on) fogState.prev = ctrl.perspective; ctrl.setPerspective({ ...ctrl.perspective, team: want.team, champion: want.champion }); }
+            else if (fogState.prev) { ctrl.setPerspective(fogState.prev); fogState.prev = null; }
+            fogState.on = want;
+        } catch (e) { warn(e); fogState.on = want; }
+    }
     // The box to show at round r: everyone in it over the next few rounds (where they're going, not just where they
     // are), anyone from either team close enough to join, padded, never too tight. `busyOnly` narrows a fight to
     // whoever is hitting or about to die right now.
@@ -2350,6 +2431,7 @@
         drawScoreboard(root, cam, r, rc);
         drawInventories(root, cam, r);
         drawTab(root, cam, r, rc);
+        ambushFog(r);
         // 2. recalls (channelled more than one turn): a rotating ring on the ground around them, or, zoomed out, a
         //    glowing ring cycling around their icon
         const active = (cam.recalls || []).filter(x => r >= x.r1 && r < x.r2);
@@ -2518,12 +2600,24 @@
     }
     const tabOn = () => localStorage.getItem(LS + 'tab') !== '0';
     addEventListener('keydown', e => { if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey && !/input|textarea|select/i.test(e.target?.tagName || '')) { e.preventDefault(); localStorage.setItem(LS + 'tab', tabOn() ? '0' : '1'); const t = document.getElementById('cbc-tab'); if (t) t.style.display = tabOn() ? '' : 'none'; } }, true);
+    // The viewer's own selected-champion panels sit at the bottom too: lift them so they show above our tab panel.
+    function liftNativePanels(tab) {
+        const tabTop = tab && tab.style.display !== 'none' ? tab.getBoundingClientRect().top : Infinity;
+        for (const t of document.querySelectorAll('[aria-label="Selected map object"], [aria-label="Champion actions"]')) {
+            let a = t; while (a && a !== document.body) { const p = getComputedStyle(a).position; if (p === 'absolute' || p === 'fixed') break; a = a.parentElement; }
+            if (!a || a === document.body || a.getBoundingClientRect().width > innerWidth * 0.8) continue;
+            const cur = a._cbcLift || 0, bottom = a.getBoundingClientRect().bottom + cur;
+            const need = Number.isFinite(tabTop) && bottom > tabTop - 8 ? Math.round(bottom - tabTop + 8) : 0;
+            if (Math.abs(need - cur) > 1) { a.style.translate = need ? `0 ${-need}px` : ''; a._cbcLift = need; }
+        }
+    }
     function drawTab(root, cam, r, rc) {
         let el = document.getElementById('cbc-tab');
         if (!game?.roster) return;
         if (!el) { el = document.createElement('div'); el.id = 'cbc-tab'; root.append(el); }
-        el.style.display = tabOn() ? '' : 'none'; if (!tabOn()) return;
+        el.style.display = tabOn() ? '' : 'none'; if (!tabOn()) { liftNativePanels(null); return; }
         el.style.left = (rc.left + rc.width / 2) + 'px'; el.style.top = ''; el.style.bottom = (innerHeight - rc.bottom + 12) + 'px';
+        liftNativePanels(el);
         const now = performance.now(); if (el._at && now - el._at < 250 && el._r === r) return; el._at = now; el._r = r;
         loadItemIcons();
         const st = atRound(cam.cstat, r); if (!st) return;
@@ -2534,14 +2628,14 @@
             const inv = e.idxs.map(i => invAt(cam, i, r)).filter(Boolean).reduce((m, iv) => m ? { items: m.items.map((n, k) => n + (iv.items[k] || 0)), cons: m.cons.map((n, k) => n + (iv.cons[k] || 0)) } : iv, null);
             const pic = `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems && e.type === 6 ? `<b>${gems}</b>` : ''}</div>`; // Prism scales with gems
             const timer = dead ? Math.min(...e.idxs.map(i => respawnIn(cam, i, r))) : 0;
-            return { items: itemCells(inv, t), cons: consCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'), gm: gems || '',
+            return { items: itemCells(inv, t), cons: consCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'), gm: gems,
                 pic: dead ? `<div class="rsp">${pic}<i>${timer}</i></div>` : pic };
         };
         el.innerHTML = matchRows(game).map(([a, b]) => {
             const L = side(a, 0), R = side(b, 1), d = sum(a, 'worth') - sum(b, 'worth');
             // net worth (unspent gold + item value) lead; the number stays centred, the arrow sits at the edge
             const gd = !a || !b || Math.abs(d) < 25 ? `<div class="gd ev">${a && b ? '=' : ''}</div>` : `<div class="gd ${d > 0 ? 'l0' : 'l1'}"><u class="a${d > 0 ? 0 : 1}">${d > 0 ? '◀' : '▶'}</u>${kfmt(Math.abs(d))}</div>`;
-            return `<div class="row"><div class="cn l">${L.cons}</div><div class="it l">${L.items}</div><div class="kda">${L.kda}</div><div class="cs">${L.cs}</div><div class="gm">${L.gm}</div>${L.pic}${gd}${R.pic}<div class="gm">${R.gm}</div><div class="cs">${R.cs}</div><div class="kda">${R.kda}</div><div class="it">${R.items}</div><div class="cn">${R.cons}</div></div>`;
+            return `<div class="row"><div class="cn l">${L.cons}</div><div class="it l">${L.items}</div><div class="kda">${L.kda}</div><div class="cs">${L.cs}</div><div class="gm${a && !L.gm ? ' z' : ''}">${a ? L.gm : ''}</div>${L.pic}${gd}${R.pic}<div class="gm${b && !R.gm ? ' z' : ''}">${b ? R.gm : ''}</div><div class="cs">${R.cs}</div><div class="kda">${R.kda}</div><div class="it">${R.items}</div><div class="cn">${R.cons}</div></div>`;
         }).join('');
     }
     // --- items under each champion's portrait in the viewer's team bars -----------------------------------------------
