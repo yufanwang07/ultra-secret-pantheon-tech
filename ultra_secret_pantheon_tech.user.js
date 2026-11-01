@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.3
+// @version      2026-11-01.4
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -944,7 +944,12 @@
 #cbc-score .gems canvas { flex: 1; height: 10px; min-width: 0; display: block; }
 #cbc-tab { position: fixed; transform: translateX(-50%); pointer-events: none; z-index: 2147482996; font: 600 12px Archivo, system-ui, sans-serif; color: #f0e6d2;
   background: linear-gradient(rgba(14,17,26,.94), rgba(8,10,15,.94)); border: 1px solid #785a28; border-radius: 4px; padding: 4px 6px; filter: drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
-#cbc-tab .row { display: grid; grid-template-columns: 132px 44px 30px 34px 66px 34px 30px 44px 132px; align-items: center; height: 36px; column-gap: 6px; }
+#cbc-tab .row { display: grid; grid-template-columns: 44px 136px 46px 30px 28px 34px 70px 34px 28px 30px 46px 136px 44px; align-items: center; height: 36px; column-gap: 6px; }
+#cbc-tab .cn { display: flex; gap: 3px; } #cbc-tab .cn.l { justify-content: flex-end; }
+#cbc-tab .cn i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px dashed #3a3226; border-radius: 3px; box-sizing: border-box; }
+#cbc-tab .cn i.on { border: 1px solid #6b5a36; }
+#cbc-tab .cn i s { position: absolute; right: -1px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+#cbc-tab .gm { font: 700 12px 'IBM Plex Mono', monospace; text-align: center; color: #c79bff; }
 #cbc-tab .row + .row { border-top: 1px solid rgba(120,90,40,.35); }
 #cbc-tab .it { display: flex; gap: 3px; } #cbc-tab .it.l { justify-content: flex-end; }
 #cbc-tab .it i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px solid #3a3226; border-radius: 3px; box-sizing: border-box; }
@@ -954,10 +959,13 @@
 #cbc-tab .cs { font: 600 12px 'IBM Plex Mono', monospace; text-align: center; color: #b9b2a0; }
 #cbc-tab .pic { position: relative; width: 30px; height: 30px; border-radius: 3px; background-color: #222; justify-self: center; }
 #cbc-tab .p0 .pic, #cbc-tab .pic.p0 { box-shadow: 0 0 0 2px #3d8bff; } #cbc-tab .pic.p1 { box-shadow: 0 0 0 2px #ff4a3d; }
-#cbc-tab .pic.dead { filter: grayscale(1) brightness(.55); }
+#cbc-tab .pic.dead { filter: grayscale(1) brightness(.38); }
+#cbc-tab .rsp { position: relative; width: 30px; height: 30px; justify-self: center; }
+#cbc-tab .rsp i { position: absolute; inset: 0; display: grid; place-items: center; font: 800 13px 'IBM Plex Mono', monospace; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; font-style: normal; }
 #cbc-tab .pic b { position: absolute; bottom: -4px; font: 800 9px 'IBM Plex Mono', monospace; color: #e7c6ff; background: #4a1f73; border: 1px solid #b07cff; border-radius: 6px; padding: 0 3px; line-height: 11px; }
 #cbc-tab .pic.p0 b { left: -6px; } #cbc-tab .pic.p1 b { right: -6px; }
-#cbc-tab .gd { text-align: center; font: 700 12px 'IBM Plex Mono', monospace; white-space: nowrap; } #cbc-tab .gd.l0 { color: #6fa8ff; } #cbc-tab .gd.l1 { color: #ff7a6e; } #cbc-tab .gd.ev { color: #6b6658; }
+#cbc-tab .gd { position: relative; text-align: center; font: 700 12px 'IBM Plex Mono', monospace; white-space: nowrap; }
+#cbc-tab .gd u { position: absolute; top: 50%; transform: translateY(-50%); text-decoration: none; font-size: 9px; } #cbc-tab .gd u.a0 { left: 2px; } #cbc-tab .gd u.a1 { right: 2px; } #cbc-tab .gd.l0 { color: #6fa8ff; } #cbc-tab .gd.l1 { color: #ff7a6e; } #cbc-tab .gd.ev { color: #6b6658; }
 #cbc-tab .empty { opacity: 0; }
 #cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
 #cbc-inv i { position: relative; width: 16px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; box-shadow: 0 0 0 1px #000, 0 0 0 2px #5b4a2a; border-radius: 2px; }
@@ -2488,9 +2496,24 @@
         if (!inv || !itemIcons) return '';
         const owned = inv.items.map((n, id) => ({ id, n })).filter(x => x.n > 0).sort((a, b) => (b.id % 2) - (a.id % 2) || b.n - a.n)
             .map(x => `<i title="${itemName(x.id)}${x.n > 1 ? ' x' + x.n : ''}" style="background-image:url(${itemIcons.items[x.id]})">${x.n > 1 ? `<s>${x.n}</s>` : ''}</i>`)
-            .concat(inv.cons.map((n, k) => n > 0 ? `<i title="${CONS[k]}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : '').filter(Boolean));
+            .concat(inv.cons.map((n, k) => n > 0 && k === 1 ? `<i title="${CONS[k]}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : '').filter(Boolean)); // wards stay with the items
         const cells = owned.length > 6 ? owned.slice(0, 5).concat(`<i class="more">+${owned.length - 5}</i>`) : owned;
         return (side ? cells : cells.reverse()).join('');
+    }
+    // teleports (crystal + scroll) and altar locks get their own two boxes past the items, empty until they own one
+    function consCells(inv, side) {
+        const box = (ks, title) => { const n = inv ? ks.reduce((t, k) => t + (inv.cons[k] || 0), 0) : 0, k = ks.find(k => inv?.cons[k] > 0) ?? ks[0];
+            return n && itemIcons ? `<i class="on" title="${title}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : `<i title="${title}"></i>`; };
+        const cells = [box([0, 3], 'Teleport'), box([2], 'Altar lock')];
+        return (side ? cells : cells.reverse()).join('');
+    }
+    // the round a dead champion comes back (the next round they're alive again), or death + 60 if it's not known yet
+    function respawnIn(cam, idx, r) {
+        cam.respawnAt ||= new Map(); const c = cam.respawnAt.get(idx);
+        if (c && c.from <= r && r < c.at) return c.at - r;
+        let at = null; for (let rr = r + 1; rr <= r + 400; rr++) { const s2 = cam.cstat?.get(rr)?.get(idx); if (s2?.alive) { at = rr; break; } }
+        if (at == null) { let d = r; for (let rr = r; rr > r - 400; rr--) { const s2 = cam.cstat?.get(rr)?.get(idx); if (s2?.alive) { d = rr + 1; break; } } at = d + 60; }
+        cam.respawnAt.set(idx, { from: r, at }); return Math.max(0, at - r);
     }
     const tabOn = () => localStorage.getItem(LS + 'tab') !== '0';
     addEventListener('keydown', e => { if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey && !/input|textarea|select/i.test(e.target?.tagName || '')) { e.preventDefault(); localStorage.setItem(LS + 'tab', tabOn() ? '0' : '1'); const t = document.getElementById('cbc-tab'); if (t) t.style.display = tabOn() ? '' : 'none'; } }, true);
@@ -2505,16 +2528,19 @@
         const st = atRound(cam.cstat, r); if (!st) return;
         const sum = (e, f) => e ? e.idxs.reduce((t, i) => t + (st.get(i)?.[f] || 0), 0) : 0;
         const side = (e, t) => {
-            if (!e) return { items: '', kda: '', cs: '', pic: `<div class="pic empty"></div>` };
+            if (!e) return { items: '', cons: '', kda: '', cs: '', gm: '', pic: `<div class="pic empty"></div>` };
             const css = art.icon(e.type) || '', gems = sum(e, 'gems'), dead = e.idxs.every(i => st.get(i) && !st.get(i).alive);
             const inv = e.idxs.map(i => invAt(cam, i, r)).filter(Boolean).reduce((m, iv) => m ? { items: m.items.map((n, k) => n + (iv.items[k] || 0)), cons: m.cons.map((n, k) => n + (iv.cons[k] || 0)) } : iv, null);
-            return { items: itemCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'),
-                pic: `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems ? `<b>${gems}</b>` : ''}</div>` };
+            const pic = `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems && e.type === 6 ? `<b>${gems}</b>` : ''}</div>`; // Prism scales with gems
+            const timer = dead ? Math.min(...e.idxs.map(i => respawnIn(cam, i, r))) : 0;
+            return { items: itemCells(inv, t), cons: consCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'), gm: gems || '',
+                pic: dead ? `<div class="rsp">${pic}<i>${timer}</i></div>` : pic };
         };
         el.innerHTML = matchRows(game).map(([a, b]) => {
             const L = side(a, 0), R = side(b, 1), d = sum(a, 'worth') - sum(b, 'worth');
-            const gd = !a || !b || Math.abs(d) < 25 ? `<div class="gd ev">${a && b ? '=' : ''}</div>` : `<div class="gd ${d > 0 ? 'l0' : 'l1'}">${d > 0 ? '◂ ' : ''}${kfmt(Math.abs(d))}${d < 0 ? ' ▸' : ''}</div>`;
-            return `<div class="row"><div class="it l">${L.items}</div><div class="kda">${L.kda}</div><div class="cs">${L.cs}</div>${L.pic}${gd}${R.pic}<div class="cs">${R.cs}</div><div class="kda">${R.kda}</div><div class="it">${R.items}</div></div>`;
+            // net worth (unspent gold + item value) lead; the number stays centred, the arrow sits at the edge
+            const gd = !a || !b || Math.abs(d) < 25 ? `<div class="gd ev">${a && b ? '=' : ''}</div>` : `<div class="gd ${d > 0 ? 'l0' : 'l1'}"><u class="a${d > 0 ? 0 : 1}">${d > 0 ? '◀' : '▶'}</u>${kfmt(Math.abs(d))}</div>`;
+            return `<div class="row"><div class="cn l">${L.cons}</div><div class="it l">${L.items}</div><div class="kda">${L.kda}</div><div class="cs">${L.cs}</div><div class="gm">${L.gm}</div>${L.pic}${gd}${R.pic}<div class="gm">${R.gm}</div><div class="cs">${R.cs}</div><div class="kda">${R.kda}</div><div class="it">${R.items}</div><div class="cn">${R.cons}</div></div>`;
         }).join('');
     }
     // --- items under each champion's portrait in the viewer's team bars -----------------------------------------------
