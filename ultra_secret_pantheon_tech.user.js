@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.2
+// @version      2026-11-01.3
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -941,11 +941,24 @@
 #cbc-score .gold i { width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2b0, #c8962a); display: inline-block; }
 #cbc-score .lead { font-size: 11px; color: #9a937f; min-width: 52px; text-align: center; } #cbc-score .lead.l0 { color: #6fa8ff; } #cbc-score .lead.l1 { color: #ff7a6e; }
 #cbc-score .gems { display: flex; align-items: center; gap: 6px; font: 600 10px 'IBM Plex Mono', monospace; color: #c9c2ae; }
-#cbc-score .gems .bar { position: relative; flex: 1; height: 7px; background: #222833; border-radius: 3px; overflow: hidden; }
-#cbc-score .gems .b0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #3d8bff; } #cbc-score .gems .b1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ff4a3d; }
-#cbc-score .gems .h0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #9cc3ff; opacity: .55; } #cbc-score .gems .h1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ffa39b; opacity: .55; }
-#cbc-score .gems em { font-style: normal; color: #8a8576; margin: 0 2px; }
-#cbc-score .gems .bar::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: #e8c66a; }
+#cbc-score .gems canvas { flex: 1; height: 10px; min-width: 0; display: block; }
+#cbc-tab { position: fixed; transform: translateX(-50%); pointer-events: none; z-index: 2147482996; font: 600 12px Archivo, system-ui, sans-serif; color: #f0e6d2;
+  background: linear-gradient(rgba(14,17,26,.94), rgba(8,10,15,.94)); border: 1px solid #785a28; border-radius: 4px; padding: 4px 6px; filter: drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
+#cbc-tab .row { display: grid; grid-template-columns: 132px 44px 30px 34px 66px 34px 30px 44px 132px; align-items: center; height: 36px; column-gap: 6px; }
+#cbc-tab .row + .row { border-top: 1px solid rgba(120,90,40,.35); }
+#cbc-tab .it { display: flex; gap: 3px; } #cbc-tab .it.l { justify-content: flex-end; }
+#cbc-tab .it i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px solid #3a3226; border-radius: 3px; box-sizing: border-box; }
+#cbc-tab .it i s { position: absolute; right: -1px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+#cbc-tab .it i.more { display: grid; place-items: center; font: 700 9px 'IBM Plex Mono', monospace; color: #c9c2ae; }
+#cbc-tab .kda { font: 600 12px 'IBM Plex Mono', monospace; text-align: center; color: #e8e2d0; white-space: nowrap; }
+#cbc-tab .cs { font: 600 12px 'IBM Plex Mono', monospace; text-align: center; color: #b9b2a0; }
+#cbc-tab .pic { position: relative; width: 30px; height: 30px; border-radius: 3px; background-color: #222; justify-self: center; }
+#cbc-tab .p0 .pic, #cbc-tab .pic.p0 { box-shadow: 0 0 0 2px #3d8bff; } #cbc-tab .pic.p1 { box-shadow: 0 0 0 2px #ff4a3d; }
+#cbc-tab .pic.dead { filter: grayscale(1) brightness(.55); }
+#cbc-tab .pic b { position: absolute; bottom: -4px; font: 800 9px 'IBM Plex Mono', monospace; color: #e7c6ff; background: #4a1f73; border: 1px solid #b07cff; border-radius: 6px; padding: 0 3px; line-height: 11px; }
+#cbc-tab .pic.p0 b { left: -6px; } #cbc-tab .pic.p1 b { right: -6px; }
+#cbc-tab .gd { text-align: center; font: 700 12px 'IBM Plex Mono', monospace; white-space: nowrap; } #cbc-tab .gd.l0 { color: #6fa8ff; } #cbc-tab .gd.l1 { color: #ff7a6e; } #cbc-tab .gd.ev { color: #6b6658; }
+#cbc-tab .empty { opacity: 0; }
 #cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
 #cbc-inv i { position: relative; width: 16px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; box-shadow: 0 0 0 1px #000, 0 0 0 2px #5b4a2a; border-radius: 2px; }
 #cbc-inv i.new { box-shadow: 0 0 0 1px #000, 0 0 0 2px #e8c66a, 0 0 6px #e8c66a; }
@@ -1657,6 +1670,11 @@
         // gold (draft excluded); net worth = unspent gold + what their items cost; kills summed per champion
         cam.goldPrev ||= new Map(); cam.earned ||= [0, 0]; cam.inv ||= new Map(); cam.buys ||= []; cam.invHist ||= new Map();
         cam.goldTeam ||= new Map(); cam.worthTeam ||= new Map(); cam.killsTeam ||= new Map();
+        // "cs" = camp rewards claimed: a gold gain that isn't a kill (gold only comes from camp captures and kills)
+        cam.cs ||= new Map(); cam.killsPrev ||= new Map();
+        if (snap.phase !== 12) for (const c of snap.champs) { const pg = cam.goldPrev.get(c.idx) ?? c.gold, pk = cam.killsPrev.get(c.idx) ?? c.kills;
+            if (c.gold > pg && c.kills === pk && snap.stepKind !== 13 && snap.stepKind !== 25) cam.cs.set(c.idx, (cam.cs.get(c.idx) || 0) + 1);
+            cam.killsPrev.set(c.idx, c.kills); }
         if (snap.phase !== 12) for (const c of snap.champs) { const pg = cam.goldPrev.get(c.idx) ?? c.gold; if (c.gold > pg) cam.earned[c.team] += c.gold - pg; cam.goldPrev.set(c.idx, c.gold); }
         if (snap.shopInv) {
             const { idx, items, cons } = snap.shopInv, prev = cam.inv.get(idx);
@@ -1669,6 +1687,8 @@
         const worth = [0, 0], kills = [0, 0];
         for (const c of snap.champs) { const iv = cam.inv.get(c.idx); worth[c.team] += c.gold + (iv ? itemsValue(iv) : 0); kills[c.team] += c.kills; }
         cam.goldTeam.set(snap.round, [...cam.earned]); cam.worthTeam.set(snap.round, worth); cam.killsTeam.set(snap.round, kills);
+        (cam.cstat ||= new Map()).set(snap.round, new Map(snap.champs.map(c => { const iv = cam.inv.get(c.idx);
+            return [c.idx, { worth: c.gold + (iv ? itemsValue(iv) : 0), gems: c.alive ? c.gems : 0, k: c.kills, cs: cam.cs.get(c.idx) || 0, alive: c.alive }]; })));
         const held = [0, 0]; for (const c of snap.champs) if (c.alive) held[c.team] += c.gems;
         (cam.gemsTeam ||= new Map()).set(snap.round, [...snap.scores, ...held]); cam.gemsAt ||= rr => atRound(cam.gemsTeam, rr) || [0, 0, 0, 0];
         (cam.hp ||= new Map()).set(snap.round, hp);
@@ -2320,6 +2340,7 @@
         // 1c. the scoreboard (kills, net worth and the gold lead, gems) and each champion's items under their portrait
         drawScoreboard(root, cam, r, rc);
         drawInventories(root, cam, r);
+        drawTab(root, cam, r, rc);
         // 2. recalls (channelled more than one turn): a rotating ring on the ground around them, or, zoomed out, a
         //    glowing ring cycling around their icon
         const active = (cam.recalls || []).filter(x => r >= x.r1 && r < x.r2);
@@ -2366,7 +2387,7 @@
     function drawScoreboard(root, cam, r, rc) {
         let el = document.getElementById('cbc-score');
         if (!el) { el = document.createElement('div'); el.id = 'cbc-score';
-            el.innerHTML = `<div class="t t0"><b class="nm"></b><span class="k"></span></div><div class="mid"><div class="gold"><span class="g0"></span><i></i><span class="lead"></span><i></i><span class="g1"></span></div><div class="gems"><span class="s0"></span><div class="bar"><b class="h0"></b><b class="b0"></b><b class="h1"></b><b class="b1"></b></div><span class="s1"></span></div></div><div class="t t1"><span class="k"></span><b class="nm"></b></div>`;
+            el.innerHTML = `<div class="t t0"><b class="nm"></b><span class="k"></span></div><div class="mid"><div class="gold"><span class="g0"></span><i></i><span class="lead"></span><i></i><span class="g1"></span></div><div class="gems"><span class="s0"></span><canvas class="gbar"></canvas><span class="s1"></span></div></div><div class="t t1"><span class="k"></span><b class="nm"></b></div>`;
             root.append(el); }
         const kills = atRound(cam.killsTeam, r) || [0, 0], worth = atRound(cam.worthTeam, r) || [0, 0], snap = game?.play;
         const gems = cam.gemsAt ? cam.gemsAt(r) : [0, 0];
@@ -2380,8 +2401,121 @@
         // gems: tributed (solid) plus what each team is carrying right now (fainter), out of 1000
         const [dep0, dep1, held0 = 0, held1 = 0] = gems;
         el.querySelector('.s0').textContent = dep0; el.querySelector('.s1').textContent = dep1; // carried gems only show in the bar
-        el.querySelector('.b0').style.width = Math.min(50, dep0 / 20) + '%'; el.querySelector('.b1').style.width = Math.min(50, dep1 / 20) + '%';
-        el.querySelector('.h0').style.width = Math.min(50, (dep0 + held0) / 20) + '%'; el.querySelector('.h1').style.width = Math.min(50, (dep1 + held1) / 20) + '%';
+        drawGemBar(el.querySelector('.gbar'), dep0, dep1, held0, held1);
+    }
+    // Gem bar, drawn on a canvas so both halves sit on exactly the same pixels: a rounded track, each team's tributed
+    // gems as a solid fill out from the centre (out of 1000 each), then what they're carrying as a dimmer, striped
+    // continuation of the same colour, set off from the solid part by a dark notch.
+    function drawGemBar(cv, dep0, dep1, held0, held1) {
+        const W = Math.round(cv.clientWidth), H = Math.round(cv.clientHeight), d = devicePixelRatio || 1;
+        if (!W || !H) return;
+        const key = [W, H, d, dep0, dep1, held0, held1].join(); if (cv._k === key) return; cv._k = key;
+        cv.width = Math.round(W * d); cv.height = Math.round(H * d);
+        const x = cv.getContext('2d'); x.setTransform(d, 0, 0, d, 0, 0); x.clearRect(0, 0, W, H);
+        const rr = (x0, y0, w, h, r) => { x.beginPath(); x.roundRect ? x.roundRect(x0, y0, w, h, r) : x.rect(x0, y0, w, h); };
+        rr(0.5, 0.5, W - 1, H - 1, H / 2); x.fillStyle = '#161b24'; x.fill(); x.strokeStyle = 'rgba(120,90,40,.7)'; x.lineWidth = 1; x.stroke();
+        x.save(); rr(1.5, 1.5, W - 3, H - 3, (H - 3) / 2); x.clip();
+        const mid = Math.round(W / 2), half = mid - 1.5, y0 = 1.5, h = H - 3;
+        const seg = (team, dep, held) => {
+            const dir = team ? 1 : -1, solid = Math.min(half, half * dep / 1000), all = Math.min(half, half * (dep + held) / 1000);
+            const col = team ? ['#ff6a5c', '#d1302a'] : ['#5aa8ff', '#2366d1'];
+            const g = x.createLinearGradient(0, y0, 0, y0 + h); g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+            if (solid > 0) { x.fillStyle = g; x.fillRect(team ? mid : mid - solid, y0, solid, h); }
+            if (all - solid > 0.5) {
+                const a = mid + dir * solid, w = all - solid, lx = team ? a : a - w;
+                x.globalAlpha = 0.42; x.fillStyle = g; x.fillRect(lx, y0, w, h);
+                x.globalAlpha = 0.25; x.fillStyle = '#fff';
+                for (let sx = lx - h; sx < lx + w; sx += 4) { x.beginPath(); x.moveTo(sx, y0 + h); x.lineTo(sx + h, y0); x.lineTo(sx + h + 1.5, y0); x.lineTo(sx + 1.5, y0 + h); x.fill(); }
+                x.globalAlpha = 1;
+                if (solid > 0) { x.fillStyle = '#0a0c11'; x.fillRect(Math.round(a) - (team ? 0 : 1), y0, 1, h); }
+            }
+        };
+        seg(0, dep0, held0); seg(1, dep1, held1);
+        x.restore();
+        x.fillStyle = '#e8c66a'; x.fillRect(mid - 0.5, 0, 1, H);
+    }
+    // --- League-style tab scoreboard at the bottom: matched champions side by side ------------------------------------
+    // Cassi & Issac count as one champion. Same champions face each other first, then the rest by role.
+    const ROLE = { 0: ['tank'], 7: ['tank'], 10: ['fighter'], 12: ['fighter'], 9: ['fighter'], 11: ['fighter'], 2: ['assassin'], 1: ['assassin'],
+        6: ['mage'], 5: ['mage'], 8: ['mage', 'tank'], duo: ['mage', 'assassin', 'fighter', 'tank'] };
+    function tabEntries(roster, team) {
+        const mine = roster.filter(c => c.team === team), out = [];
+        const duo = mine.filter(c => isDuo(c.type));
+        if (duo.length) out.push({ key: 'duo', type: 3, idxs: duo.map(c => c.idx), roles: ROLE.duo, team });
+        for (const c of mine) if (!isDuo(c.type)) out.push({ key: c.type, type: c.type, idxs: [c.idx], roles: ROLE[c.type] || ['fighter'], team });
+        return out;
+    }
+    function matchRows(g) {
+        if (g.tabRows) return g.tabRows;
+        const A = tabEntries(g.roster, 0), B = tabEntries(g.roster, 1), rows = [];
+        for (const a of [...A]) { const k = B.findIndex(b => b.key === a.key); if (k >= 0) { rows.push([a, B[k]]); A.splice(A.indexOf(a), 1); B.splice(k, 1); } }
+        const cost = (a, b) => a.roles[0] === b.roles[0] ? 0 : (a.roles.includes(b.roles[0]) || b.roles.includes(a.roles[0])) ? 1 + Math.max(a.roles.indexOf(b.roles[0]), b.roles.indexOf(a.roles[0])) * 0.1 : a.roles.some(r => b.roles.includes(r)) ? 2 : 4;
+        // best assignment by brute force (at most 6 per side)
+        const small = A.length <= B.length ? A : B, big = small === A ? B : A;
+        let best = null, bestC = Infinity;
+        const perm = (left, used, acc, c) => {
+            if (c >= bestC) return;
+            if (!left.length) { bestC = c; best = acc.slice(); return; }
+            const [h, ...rest] = left;
+            big.forEach((b, i) => { if (used.has(i)) return; used.add(i); acc.push([h, b]); perm(rest, used, acc, c + cost(h, b)); acc.pop(); used.delete(i); });
+        };
+        perm(small, new Set(), [], 0);
+        for (const [s, b] of best || []) rows.push(small === A ? [s, b] : [b, s]);
+        const paired = new Set(rows.flat());
+        for (const e of [...A, ...B]) if (!paired.has(e)) rows.push(e.team === 0 ? [e, null] : [null, e]);
+        // a stable shuffle per game, so the order doesn't look fixed from game to game
+        let seed = 0; for (const c of g.roster) seed = (seed * 31 + c.type * 7 + c.idx + c.team * 13) >>> 0;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        for (let i = rows.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rows[i], rows[j]] = [rows[j], rows[i]]; }
+        return (g.tabRows = rows);
+    }
+    function kdaFor(g, cam, idxs, r) {
+        let k = 0, d = 0, a = 0; const set = new Set(idxs);
+        for (const ev of g.index) { if (ev.round > r) break;
+            for (const kl of ev.kills) {
+                const victims = kl.victim.duo ? (g.roster || []).filter(o => isDuo(o.type) && o.team === kl.victim.team).map(o => o.idx) : [kl.victim.idx];
+                if (victims.some(v => set.has(v))) d++;
+                if (kl.killer && set.has(kl.killer.idx)) k++;
+                else if (kl.killer) {
+                    const helped = (cam.hits || []).some(h => set.has(h.a) && victims.includes(h.v) && h.round <= ev.round && h.round >= ev.round - ASSIST_WINDOW);
+                    if (helped && !idxs.includes(kl.killer.idx)) a++;
+                }
+            }
+        }
+        return `${k}/${d}/${a}`;
+    }
+    function itemCells(inv, side) {
+        if (!inv || !itemIcons) return '';
+        const owned = inv.items.map((n, id) => ({ id, n })).filter(x => x.n > 0).sort((a, b) => (b.id % 2) - (a.id % 2) || b.n - a.n)
+            .map(x => `<i title="${itemName(x.id)}${x.n > 1 ? ' x' + x.n : ''}" style="background-image:url(${itemIcons.items[x.id]})">${x.n > 1 ? `<s>${x.n}</s>` : ''}</i>`)
+            .concat(inv.cons.map((n, k) => n > 0 ? `<i title="${CONS[k]}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : '').filter(Boolean));
+        const cells = owned.length > 6 ? owned.slice(0, 5).concat(`<i class="more">+${owned.length - 5}</i>`) : owned;
+        return (side ? cells : cells.reverse()).join('');
+    }
+    const tabOn = () => localStorage.getItem(LS + 'tab') !== '0';
+    addEventListener('keydown', e => { if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey && !/input|textarea|select/i.test(e.target?.tagName || '')) { e.preventDefault(); localStorage.setItem(LS + 'tab', tabOn() ? '0' : '1'); const t = document.getElementById('cbc-tab'); if (t) t.style.display = tabOn() ? '' : 'none'; } }, true);
+    function drawTab(root, cam, r, rc) {
+        let el = document.getElementById('cbc-tab');
+        if (!game?.roster) return;
+        if (!el) { el = document.createElement('div'); el.id = 'cbc-tab'; root.append(el); }
+        el.style.display = tabOn() ? '' : 'none'; if (!tabOn()) return;
+        el.style.left = (rc.left + rc.width / 2) + 'px'; el.style.top = ''; el.style.bottom = (innerHeight - rc.bottom + 12) + 'px';
+        const now = performance.now(); if (el._at && now - el._at < 250 && el._r === r) return; el._at = now; el._r = r;
+        loadItemIcons();
+        const st = atRound(cam.cstat, r); if (!st) return;
+        const sum = (e, f) => e ? e.idxs.reduce((t, i) => t + (st.get(i)?.[f] || 0), 0) : 0;
+        const side = (e, t) => {
+            if (!e) return { items: '', kda: '', cs: '', pic: `<div class="pic empty"></div>` };
+            const css = art.icon(e.type) || '', gems = sum(e, 'gems'), dead = e.idxs.every(i => st.get(i) && !st.get(i).alive);
+            const inv = e.idxs.map(i => invAt(cam, i, r)).filter(Boolean).reduce((m, iv) => m ? { items: m.items.map((n, k) => n + (iv.items[k] || 0)), cons: m.cons.map((n, k) => n + (iv.cons[k] || 0)) } : iv, null);
+            return { items: itemCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'),
+                pic: `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems ? `<b>${gems}</b>` : ''}</div>` };
+        };
+        el.innerHTML = matchRows(game).map(([a, b]) => {
+            const L = side(a, 0), R = side(b, 1), d = sum(a, 'worth') - sum(b, 'worth');
+            const gd = !a || !b || Math.abs(d) < 25 ? `<div class="gd ev">${a && b ? '=' : ''}</div>` : `<div class="gd ${d > 0 ? 'l0' : 'l1'}">${d > 0 ? '◂ ' : ''}${kfmt(Math.abs(d))}${d < 0 ? ' ▸' : ''}</div>`;
+            return `<div class="row"><div class="it l">${L.items}</div><div class="kda">${L.kda}</div><div class="cs">${L.cs}</div>${L.pic}${gd}${R.pic}<div class="cs">${R.cs}</div><div class="kda">${R.kda}</div><div class="it">${R.items}</div></div>`;
+        }).join('');
     }
     // --- items under each champion's portrait in the viewer's team bars -----------------------------------------------
     let itemIcons = null, itemIconsLoading = false;
