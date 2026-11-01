@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.4
+// @version      2026-11-01.5
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -944,7 +944,7 @@
 #cbc-score .gems canvas { flex: 1; height: 10px; min-width: 0; display: block; }
 #cbc-tab { position: fixed; transform: translateX(-50%); pointer-events: none; z-index: 2147482996; font: 600 12px Archivo, system-ui, sans-serif; color: #f0e6d2;
   background: linear-gradient(rgba(14,17,26,.94), rgba(8,10,15,.94)); border: 1px solid #785a28; border-radius: 4px; padding: 4px 6px; filter: drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
-#cbc-tab .row { display: grid; grid-template-columns: 44px 136px 46px 30px 28px 34px 70px 34px 28px 30px 46px 136px 44px; align-items: center; height: 36px; column-gap: 6px; }
+#cbc-tab .row { display: grid; --gap: 6px; grid-template-columns: 44px 136px 46px 30px 28px 34px 50px 34px 28px 30px 46px 136px 44px; align-items: center; height: 36px; column-gap: 6px; }
 #cbc-tab .cn { display: flex; gap: 3px; } #cbc-tab .cn.l { justify-content: flex-end; }
 #cbc-tab .cn i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px dashed #3a3226; border-radius: 3px; box-sizing: border-box; }
 #cbc-tab .cn i.on { border: 1px solid #6b5a36; }
@@ -954,6 +954,7 @@
 #cbc-tab .it { display: flex; gap: 3px; } #cbc-tab .it.l { justify-content: flex-end; }
 #cbc-tab .it i { position: relative; width: 19px; height: 19px; background: #0b0d12 center/100% 100% no-repeat; image-rendering: pixelated; border: 1px solid #3a3226; border-radius: 3px; box-sizing: border-box; }
 #cbc-tab .it i s { position: absolute; right: -1px; bottom: -3px; font: 700 8px 'IBM Plex Mono', monospace; color: #fff; text-decoration: none; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+#cbc-tab .it i.no { border-style: dashed; background: none; }
 #cbc-tab .it i.more { display: grid; place-items: center; font: 700 9px 'IBM Plex Mono', monospace; color: #c9c2ae; }
 #cbc-tab .kda { font: 600 12px 'IBM Plex Mono', monospace; text-align: center; color: #e8e2d0; white-space: nowrap; }
 #cbc-tab .cs { font: 600 12px 'IBM Plex Mono', monospace; text-align: center; color: #b9b2a0; }
@@ -965,7 +966,7 @@
 #cbc-tab .pic b { position: absolute; bottom: -4px; font: 800 9px 'IBM Plex Mono', monospace; color: #e7c6ff; background: #4a1f73; border: 1px solid #b07cff; border-radius: 6px; padding: 0 3px; line-height: 11px; }
 #cbc-tab .pic.p0 b { left: -6px; } #cbc-tab .pic.p1 b { right: -6px; }
 #cbc-tab .gd { position: relative; text-align: center; font: 700 12px 'IBM Plex Mono', monospace; white-space: nowrap; }
-#cbc-tab .gd u { position: absolute; top: 50%; transform: translateY(-50%); text-decoration: none; font-size: 9px; } #cbc-tab .gd u.a0 { left: 2px; } #cbc-tab .gd u.a1 { right: 2px; } #cbc-tab .gd.l0 { color: #6fa8ff; } #cbc-tab .gd.l1 { color: #ff7a6e; } #cbc-tab .gd.ev { color: #6b6658; }
+#cbc-tab .gd u { position: absolute; top: 50%; transform: translateY(-50%); text-decoration: none; font-size: 9px; } #cbc-tab .gd u.a0 { left: -3px; } #cbc-tab .gd u.a1 { right: -3px; } #cbc-tab .gd.l0 { color: #6fa8ff; } #cbc-tab .gd.l1 { color: #ff7a6e; } #cbc-tab .gd.ev { color: #6b6658; }
 #cbc-tab .empty { opacity: 0; }
 #cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
 #cbc-inv i { position: relative; width: 16px; height: 16px; background-size: 100% 100%; image-rendering: pixelated; box-shadow: 0 0 0 1px #000, 0 0 0 2px #5b4a2a; border-radius: 2px; }
@@ -2493,11 +2494,11 @@
         return `${k}/${d}/${a}`;
     }
     function itemCells(inv, side) {
-        if (!inv || !itemIcons) return '';
+        if (!inv || !itemIcons) return Array(6).fill('<i class="no"></i>').join('');
         const owned = inv.items.map((n, id) => ({ id, n })).filter(x => x.n > 0).sort((a, b) => (b.id % 2) - (a.id % 2) || b.n - a.n)
             .map(x => `<i title="${itemName(x.id)}${x.n > 1 ? ' x' + x.n : ''}" style="background-image:url(${itemIcons.items[x.id]})">${x.n > 1 ? `<s>${x.n}</s>` : ''}</i>`)
             .concat(inv.cons.map((n, k) => n > 0 && k === 1 ? `<i title="${CONS[k]}" style="background-image:url(${itemIcons.cons[k]})">${n > 1 ? `<s>${n}</s>` : ''}</i>` : '').filter(Boolean)); // wards stay with the items
-        const cells = owned.length > 6 ? owned.slice(0, 5).concat(`<i class="more">+${owned.length - 5}</i>`) : owned;
+        const cells = owned.length > 6 ? owned.slice(0, 5).concat(`<i class="more">+${owned.length - 5}</i>`) : owned.concat(Array(6 - owned.length).fill('<i class="no"></i>'));
         return (side ? cells : cells.reverse()).join('');
     }
     // teleports (crystal + scroll) and altar locks get their own two boxes past the items, empty until they own one
