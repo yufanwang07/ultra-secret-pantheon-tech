@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.1
+// @version      2026-11-01.2
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -941,9 +941,9 @@
 #cbc-score .gold i { width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2b0, #c8962a); display: inline-block; }
 #cbc-score .lead { font-size: 11px; color: #9a937f; min-width: 52px; text-align: center; } #cbc-score .lead.l0 { color: #6fa8ff; } #cbc-score .lead.l1 { color: #ff7a6e; }
 #cbc-score .gems { display: flex; align-items: center; gap: 6px; font: 600 10px 'IBM Plex Mono', monospace; color: #c9c2ae; }
-#cbc-score .gems .bar { position: relative; flex: 1; height: 5px; background: #222833; border-radius: 3px; overflow: hidden; }
+#cbc-score .gems .bar { position: relative; flex: 1; height: 7px; background: #222833; border-radius: 3px; overflow: hidden; }
 #cbc-score .gems .b0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #3d8bff; } #cbc-score .gems .b1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ff4a3d; }
-#cbc-score .gems .h0 { position: absolute; right: 50%; top: 0; bottom: 0; background: rgba(61,139,255,.35); } #cbc-score .gems .h1 { position: absolute; left: 50%; top: 0; bottom: 0; background: rgba(255,74,61,.35); }
+#cbc-score .gems .h0 { position: absolute; right: 50%; top: 0; bottom: 0; background: #9cc3ff; opacity: .55; } #cbc-score .gems .h1 { position: absolute; left: 50%; top: 0; bottom: 0; background: #ffa39b; opacity: .55; }
 #cbc-score .gems em { font-style: normal; color: #8a8576; margin: 0 2px; }
 #cbc-score .gems .bar::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: #e8c66a; }
 #cbc-inv .col { position: fixed; width: 34px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; z-index: 2147482997; }
@@ -2379,7 +2379,7 @@
         lead.textContent = Math.abs(d) < 50 ? '' : '+' + kfmt(Math.abs(d)); lead.className = 'lead ' + (Math.abs(d) < 50 ? '' : d > 0 ? 'l0' : 'l1');
         // gems: tributed (solid) plus what each team is carrying right now (fainter), out of 1000
         const [dep0, dep1, held0 = 0, held1 = 0] = gems;
-        el.querySelector('.s0').innerHTML = `${dep0}${held0 ? `<em>+${held0}</em>` : ''}`; el.querySelector('.s1').innerHTML = `${held1 ? `<em>+${held1}</em>` : ''}${dep1}`;
+        el.querySelector('.s0').textContent = dep0; el.querySelector('.s1').textContent = dep1; // carried gems only show in the bar
         el.querySelector('.b0').style.width = Math.min(50, dep0 / 20) + '%'; el.querySelector('.b1').style.width = Math.min(50, dep1 / 20) + '%';
         el.querySelector('.h0').style.width = Math.min(50, (dep0 + held0) / 20) + '%'; el.querySelector('.h1').style.width = Math.min(50, (dep1 + held1) / 20) + '%';
     }
