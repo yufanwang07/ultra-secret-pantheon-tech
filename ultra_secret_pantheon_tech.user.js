@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.10
+// @version      2026-11-01.11
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2593,6 +2593,7 @@
         return (side ? cells : cells.reverse()).join('');
     }
     // the round a dead champion comes back (the next round they're alive again), or death + 60 if it's not known yet
+    const PRISM_FOCUS_PER_GEM = 1.5; // Prism's passive: raw focus per carried gem
     function respawnIn(cam, idx, r) {
         cam.respawnAt ||= new Map(); const c = cam.respawnAt.get(idx);
         if (c && c.from <= r && r < c.at) return c.at - r;
@@ -2628,7 +2629,7 @@
             if (!e) return { items: '', cons: '', kda: '', cs: '', gm: '', pic: `<div class="pic empty"></div>` };
             const css = art.icon(e.type) || '', gems = sum(e, 'gems'), dead = e.idxs.every(i => st.get(i) && !st.get(i).alive);
             const inv = e.idxs.map(i => invAt(cam, i, r)).filter(Boolean).reduce((m, iv) => m ? { items: m.items.map((n, k) => n + (iv.items[k] || 0)), cons: m.cons.map((n, k) => n + (iv.cons[k] || 0)) } : iv, null);
-            const pic = `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems && e.type === 6 ? `<b>${gems}</b>` : ''}</div>`; // Prism scales with gems
+            const pic = `<div class="pic p${t}${dead ? ' dead' : ''}" style='${css.replace(/'/g, '"')}'>${gems && e.type === 6 ? `<b title="focus from carried gems">+${Math.round(gems * PRISM_FOCUS_PER_GEM)}</b>` : ''}</div>`; // Prism: focus from carried gems
             const timer = dead ? Math.min(...e.idxs.map(i => respawnIn(cam, i, r))) : 0;
             return { items: itemCells(inv, t), cons: consCells(inv, t), kda: kdaFor(game, cam, e.idxs, r), cs: sum(e, 'cs'), gm: gems,
                 pic: dead ? `<div class="rsp">${pic}<i>${timer}</i></div>` : pic };
