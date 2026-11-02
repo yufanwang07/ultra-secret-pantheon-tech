@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.9
+// @version      2026-11-01.10
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -1877,8 +1877,10 @@
         for (const el of document.querySelectorAll('canvas, button[aria-label^="Follow "], main *')) {
             const k = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
             for (let f = k && el[k], n = 0; f && n < 60; f = f.return, n++) {
-                const p = f.memoizedProps; if (!p || typeof p !== 'object') continue;
-                for (const v of Object.values(p)) if (v && typeof v === 'object' && typeof v.setPerspective === 'function' && v.perspective) return (ctrlRef = v);
+                // it lives in a component's hook (a ref), not in props
+                const cands = [...Object.values(f.memoizedProps && typeof f.memoizedProps === 'object' ? f.memoizedProps : {})];
+                for (let h = f.memoizedState, i = 0; h && i < 25; h = h.next, i++) cands.push(h.memoizedState, h.memoizedState?.current);
+                for (const v of cands) if (v && typeof v === 'object' && typeof v.setPerspective === 'function' && v.perspective) return (ctrlRef = v);
             }
         }
         return null;
