@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.11
+// @version      2026-11-01.12
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2803,6 +2803,7 @@
                 Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
                 if (cv.width !== Math.round(rc.width * dpr)) { cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr); }
                 const x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, rc.width, rc.height);
+                (window.__cbcHp ||= {}).frame = { on, ppt: Math.round(ppt), r, tr: !!tr, parts: parts.size, claims: [...claim.values()].map(i => cam?.order[i]), drawn: [] };
                 if (!on) return;
                 for (const [p, ci] of claim) {
                     const e = p.fill || p.bg; if (!e || (p.ref.opacity ?? 1) <= 0) continue;
@@ -2832,8 +2833,9 @@
                     const ctype = game.roster?.find(c => c.idx === key)?.type, base = BASE_HP[ctype] ?? max;
                     const vis = base + Math.max(0, max - base) * 2; // item health counts 2x for the ticks only
                     LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone, vis);
+                    window.__cbcHp.frame.drawn.push([key, Math.round(bx), Math.round(by), Math.round(W)]);
                 }
-            } catch { }
+            } catch (err) { (window.__cbcHp ||= {}).err = String(err && err.stack || err); }
         });
     }
     function groundRings(b, champs, now) {
