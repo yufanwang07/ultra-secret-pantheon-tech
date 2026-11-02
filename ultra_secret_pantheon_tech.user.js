@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.8
+// @version      2026-11-01.9
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2733,7 +2733,7 @@
             const t = (now - shGone.t0) / 400; x.globalAlpha = Math.max(0.15, 0.95 - 0.8 * t) * (0.75 + 0.25 * Math.sin(now / 45));
             x.fillStyle = '#ffffff'; x.fillRect(g0, by, gw, H); x.globalAlpha = 1; }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
-        // ticks run on a "looks like" max HP where item health counts 1.5x (tanky builds read tankier); the fill and
+        // ticks run on a "looks like" max HP where item health counts 2x (tanky builds read tankier); the fill and
         // damage still use real HP. A heavy tick every 500, a light one every 100;
         // spacing is fixed, so more health always means more blocks; light ticks drop out once they'd be crammed
         // closer than about half the bar's height (so it scales with zoom).
@@ -2743,6 +2743,7 @@
             x.fillStyle = 'rgba(0,0,0,.75)'; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
     }
     const hpOwner = new WeakMap(); // viewer unit (a bar's depthReference) -> champion idx
+    const hpHidden = new Map();    // viewer bar element we hid -> its opacity before
     const HP_THICK_PPT = 24; // screen px per tile from which our thick bars replace the viewer's (its icon LOD switch)
     function hookHealthBars(b) {
         if (!b || b.__cbcHp) return; b.__cbcHp = true;
@@ -2754,7 +2755,8 @@
                 // thick bars only zoomed in past where the viewer swaps champions for icons (~24 px a tile)
                 let ppt = 0; try { const p0 = b.camera.project({ x: 24, y: 24, z: 0 }), p1 = b.camera.project({ x: 25, y: 24, z: 0 }); if (p0 && p1 && p0.z > 0) ppt = Math.abs(p1.x - p0.x); } catch { }
                 const r = game?.play?.round ?? 0, tr = cam && trackAt(cam, r);
-                const on = bannersOn() && !draft.on && phase !== 'draft' && ppt >= HP_THICK_PPT && !!tr;
+                // (after a seek the replay's track can lag behind the round shown; then bars keep the owners they had)
+                const on = bannersOn() && !draft.on && phase !== 'draft' && ppt >= HP_THICK_PPT && !!cam;
                 const parts = new Map();
                 for (const e of sc.uiPixelElements) {
                     const ref = e.depthReference; if (ref?.unitIcon?.healthFraction === undefined) continue; // units with a bar
@@ -2775,7 +2777,7 @@
                 // claims (monsters, the dead) keep the viewer's own thin bars.
                 const claim = new Map();
                 if (on) {
-                    const nx = trackAt(cam, r + 1) || tr, alive = i => tr[i * 3 + 2] === 1;
+                    const nx = trackAt(cam, r + 1) || tr, alive = i => !tr || tr[i * 3 + 2] === 1;
                     const dist = (p, i) => Math.min(Math.hypot(tr[i * 3] - p.ref.position.x, tr[i * 3 + 1] - p.ref.position.y),
                         Math.hypot(nx[i * 3] - p.ref.position.x, nx[i * 3 + 1] - p.ref.position.y));
                     const taken = new Set(), byIdx = new Map(cam.order.map((idx, i) => [idx, i]));
@@ -2785,13 +2787,15 @@
                         claim.set(p, i); taken.add(i);
                     }
                     const pairs = [];
-                    for (const p of parts.values()) if (!claim.has(p)) cam.order.forEach((idx, i) => {
+                    if (tr) for (const p of parts.values()) if (!claim.has(p)) cam.order.forEach((idx, i) => {
                         if (!taken.has(i) && alive(i)) { const d = dist(p, i); if (d < 2.5) pairs.push([d, p, i]); } });
                     pairs.sort((u, v) => u[0] - v[0]);
                     for (const [, p, i] of pairs) if (!claim.has(p) && !taken.has(i)) { claim.set(p, i); taken.add(i); hpOwner.set(p.ref, cam.order[i]); }
-                    cam.order.forEach((idx, i) => { if (!alive(i)) hpLag.delete(idx); }); // no stale drain after a death
+                    if (tr) cam.order.forEach((idx, i) => { if (!alive(i)) hpLag.delete(idx); }); // no stale drain after a death
                 }
-                for (const [p] of claim) for (const e of [p.bg, ...(p.layers || [])]) if (e) e.opacity = 0;
+                // hide the viewer's bars we draw over; any we hid before but don't draw now get theirs back
+                for (const [p] of claim) for (const e of [p.bg, ...(p.layers || [])]) if (e) { if (!hpHidden.has(e)) hpHidden.set(e, e.opacity ?? 1); e.opacity = 0; }
+                for (const p of parts.values()) if (!claim.has(p)) for (const e of [p.bg, ...(p.layers || [])]) if (e && hpHidden.has(e)) { e.opacity = hpHidden.get(e); hpHidden.delete(e); }
                 if (!cv || !cv.isConnected) { cv = document.createElement('canvas'); cv.id = 'cbc-hp'; mc.after(cv); }
                 Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
                 if (cv.width !== Math.round(rc.width * dpr)) { cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr); }
@@ -2823,7 +2827,7 @@
                     const sl = shLag.get(key), shGone = sl && sl.v > sh + 0.001 ? { v: sl.v - (sl.v - sh) * 0.12, t0: sl.t0 ?? now } : null;
                     shLag.set(key, shGone ? shGone : { v: sh, t0: null });
                     const ctype = game.roster?.find(c => c.idx === key)?.type, base = BASE_HP[ctype] ?? max;
-                    const vis = base + Math.max(0, max - base) * 1.5; // item health counts 1.5x for the ticks only
+                    const vis = base + Math.max(0, max - base) * 2; // item health counts 2x for the ticks only
                     LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone, vis);
                 }
             } catch { }
