@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.13
+// @version      2026-11-01.15
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -1384,6 +1384,7 @@
                 stats.lastFrame = now;
                 const dt = step(now);
                 const cv = b.htmlRefs.canvas;
+                root.split = show.mode === 'split'; // (the main view is shifted into the left pane: see hookHealthBars)
                 if (show.mode === 'off') { if (overlay) overlay.style.display = 'none'; return timed(b); }
                 let ready = false;
                 try { ready = b.isReady() && !b.destroyed; } catch { }
@@ -1409,7 +1410,8 @@
                             L.x = show.cam.x; L.y = show.cam.y; c._distance = Math.exp(show.cam.z); c.invalidateViewport();
                             // a full render pass, scene update included, so screen-space things (health bars, unit icons
                             // and their layering) are laid out for B's camera, not A's
-                            orig.call(b); pl.render(true);
+                            root.inB = true; // (the health bar hook skips this pass: see hookHealthBars)
+                            try { orig.call(b); pl.render(true); } finally { root.inB = false; }
                             ctx2d.setTransform(1, 0, 0, 1, 0, 0); ctx2d.clearRect(0, 0, overlay.width, overlay.height);
                             if (show.mode === 'split') {
                                 let { xt, xb } = divider(W, H, e);
@@ -2754,6 +2756,13 @@
         b.on('tick', () => {
             try {
                 const sc = b.scene, st = b.spritestore, cam = game?.cam; if (!sc?.uiPixelElements) return;
+                // The dual camera's second view (PiP / split pane) is a full extra render pass with its own camera.
+                // Our bars can't go into that picture, so for that pass give the viewer its own bars back (they're
+                // hidden again in the main pass right after), and leave our canvas alone.
+                if (DUAL.inB) { for (const [e, op] of hpHidden) e.opacity = op; return; }
+                // In a split screen the main view is redrawn shifted into the left pane, so screen positions don't
+                // line up with ours: the viewer's own bars (which travel with the picture) take over until it ends.
+                if (DUAL.split) { for (const [e, op] of hpHidden) e.opacity = op; hpHidden.clear(); if (cv?.isConnected) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); return; }
                 const mc = b.htmlRefs.canvas, rc = mc.getBoundingClientRect(), k = rc.width / b.camera.viewportWidth, dpr = devicePixelRatio || 1;
                 // thick bars only zoomed in past where the viewer swaps champions for icons (~24 px a tile)
                 // measured where the camera is looking: a fixed tile can sit behind the camera when it's zoomed in on a far
@@ -2801,6 +2810,10 @@
                 // hide the viewer's bars we draw over; any we hid before but don't draw now get theirs back
                 for (const [p] of claim) for (const e of [p.bg, ...(p.layers || [])]) if (e) { if (!hpHidden.has(e)) hpHidden.set(e, e.opacity ?? 1); e.opacity = 0; }
                 for (const p of parts.values()) if (!claim.has(p)) for (const e of [p.bg, ...(p.layers || [])]) if (e && hpHidden.has(e)) { e.opacity = hpHidden.get(e); hpHidden.delete(e); }
+                // Draw once this frame's render has laid the bars out: in the tick their screen positions are still
+                // from the last pass, which after a dual-camera pass is the other camera's (bars smeared across the
+                // map when a PiP was up).
+                queueMicrotask(() => { try {
                 if (!cv || !cv.isConnected) { cv = document.createElement('canvas'); cv.id = 'cbc-hp'; mc.after(cv); }
                 Object.assign(cv.style, { position: 'absolute', left: mc.offsetLeft + 'px', top: mc.offsetTop + 'px', width: rc.width + 'px', height: rc.height + 'px', pointerEvents: 'none' });
                 if (cv.width !== Math.round(rc.width * dpr)) { cv.width = Math.round(rc.width * dpr); cv.height = Math.round(rc.height * dpr); }
@@ -2837,6 +2850,7 @@
                     LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone, vis);
                     window.__cbcHp.frame.drawn.push([key, Math.round(bx), Math.round(by), Math.round(W)]);
                 }
+                } catch (err) { (window.__cbcHp ||= {}).err = String(err && err.stack || err); } });
             } catch (err) { (window.__cbcHp ||= {}).err = String(err && err.stack || err); }
         });
     }
