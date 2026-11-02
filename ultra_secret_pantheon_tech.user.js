@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.6
+// @version      2026-11-01.7
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2694,7 +2694,9 @@
     // top; recent damage trails behind (yellow on red team, red on blue; a big chunk shows as a gradient, yellow to
     // orange on red, orange to yellow on blue, its far end blurring out), recent healing flashes green and fades.
     const shLag = new Map(); // champion -> { v: shield fraction still drawn, t0: when it started going }
-    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, shield = 0, shGone = null) {
+    // base max HP per champion type (handbook), to tell item health apart from the champion's own
+    const BASE_HP = { 0: 1200, 1: 1000, 2: 1000, 3: 600, 4: 900, 5: 650, 6: 700, 7: 1200, 8: 700, 9: 900, 10: 1000, 11: 900, 12: 1000 };
+    function LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, shield = 0, shGone = null, vis = 0) {
         const red = team === 1;
         x.fillStyle = '#050608'; x.fillRect(bx - edge * 1.6, by - edge * 1.6, W + edge * 3.2, H + edge * 3.2);
         x.strokeStyle = 'rgba(176,152,104,.55)'; x.lineWidth = Math.max(1, edge * 0.6);
@@ -2731,8 +2733,13 @@
             const t = (now - shGone.t0) / 400; x.globalAlpha = Math.max(0.15, 0.95 - 0.8 * t) * (0.75 + 0.25 * Math.sin(now / 45));
             x.fillStyle = '#ffffff'; x.fillRect(g0, by, gw, H); x.globalAlpha = 1; }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
-        const step = max > 4000 ? 500 : 250, heavy = max > 4000 ? 2000 : 1000;
-        for (let v = step; v < max; v += step) { const tx = bx + W * v / max, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
+        // ticks run on a "looks like" max HP where item health counts 1.5x (tanky builds read tankier); the fill and
+        // damage still use real HP. Blocks start small (a heavy tick every 500, light every 100) and grow with the
+        // max; light ticks drop out once they'd be crammed closer than ~4px apart.
+        const vmax = Math.max(1, vis || max);
+        const [step, heavy] = vmax <= 2500 ? [100, 500] : vmax <= 6000 ? [250, 1000] : [500, 2000];
+        const light = W * step / vmax >= 4;
+        for (let v = light ? step : heavy; v < vmax; v += light ? step : heavy) { const tx = bx + W * v / vmax, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
             x.fillStyle = 'rgba(0,0,0,.75)'; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
     }
     const hpOwner = new WeakMap(); // viewer unit (a bar's depthReference) -> champion idx
@@ -2815,7 +2822,9 @@
                     // a lost shield doesn't vanish: the gone part pulses white and shrinks away like the damage trail
                     const sl = shLag.get(key), shGone = sl && sl.v > sh + 0.001 ? { v: sl.v - (sl.v - sh) * 0.12, t0: sl.t0 ?? now } : null;
                     shLag.set(key, shGone ? shGone : { v: sh, t0: null });
-                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone);
+                    const ctype = game.roster?.find(c => c.idx === key)?.type, base = BASE_HP[ctype] ?? max;
+                    const vis = base + Math.max(0, max - base) * 1.5; // item health counts 1.5x for the ticks only
+                    LEAGUE_BAR(x, bx, by, W, H, edge, frac, shown, team, max, heal, now, sh, shGone, vis);
                 }
             } catch { }
         });
