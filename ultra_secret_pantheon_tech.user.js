@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.15
+// @version      2026-11-01.16
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2770,7 +2770,11 @@
                 let ppt = 0; try { const lp = b.camera.lookPosition || { x: 24, y: 24 }; const p0 = b.camera.project({ x: lp.x, y: lp.y, z: 0 }), p1 = b.camera.project({ x: lp.x + 1, y: lp.y, z: 0 }); if (p0 && p1 && p0.z > 0) ppt = Math.abs(p1.x - p0.x); } catch { }
                 const r = game?.play?.round ?? 0, tr = cam && trackAt(cam, r);
                 // (after a seek the replay's track can lag behind the round shown; then bars keep the owners they had)
-                const on = bannersOn() && !draft.on && phase !== 'draft' && ppt >= HP_THICK_PPT && !!cam;
+                // the viewer's own switch between champion sprites and icons (its unit-icon layer fades in at
+                // <= 24 px a tile by the camera's distance); our thick bars go exactly where its sprites are shown
+                const iconK = b.state?.pipeline?.unitIcons?.model?.progress;
+                const zoomedIn = typeof iconK === 'number' ? iconK < 0.5 : ppt >= HP_THICK_PPT;
+                const on = bannersOn() && !draft.on && phase !== 'draft' && zoomedIn && !!cam;
                 const parts = new Map();
                 for (const e of sc.uiPixelElements) {
                     const ref = e.depthReference; if (ref?.unitIcon?.healthFraction === undefined) continue; // units with a bar
