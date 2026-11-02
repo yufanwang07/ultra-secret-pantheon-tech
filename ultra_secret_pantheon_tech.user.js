@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.12
+// @version      2026-11-01.13
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2756,7 +2756,9 @@
                 const sc = b.scene, st = b.spritestore, cam = game?.cam; if (!sc?.uiPixelElements) return;
                 const mc = b.htmlRefs.canvas, rc = mc.getBoundingClientRect(), k = rc.width / b.camera.viewportWidth, dpr = devicePixelRatio || 1;
                 // thick bars only zoomed in past where the viewer swaps champions for icons (~24 px a tile)
-                let ppt = 0; try { const p0 = b.camera.project({ x: 24, y: 24, z: 0 }), p1 = b.camera.project({ x: 25, y: 24, z: 0 }); if (p0 && p1 && p0.z > 0) ppt = Math.abs(p1.x - p0.x); } catch { }
+                // measured where the camera is looking: a fixed tile can sit behind the camera when it's zoomed in on a far
+                // part of the map, which read as zoomed out and switched our bars off (Prism near the bottom edge, 11-01)
+                let ppt = 0; try { const lp = b.camera.lookPosition || { x: 24, y: 24 }; const p0 = b.camera.project({ x: lp.x, y: lp.y, z: 0 }), p1 = b.camera.project({ x: lp.x + 1, y: lp.y, z: 0 }); if (p0 && p1 && p0.z > 0) ppt = Math.abs(p1.x - p0.x); } catch { }
                 const r = game?.play?.round ?? 0, tr = cam && trackAt(cam, r);
                 // (after a seek the replay's track can lag behind the round shown; then bars keep the owners they had)
                 const on = bannersOn() && !draft.on && phase !== 'draft' && ppt >= HP_THICK_PPT && !!cam;
