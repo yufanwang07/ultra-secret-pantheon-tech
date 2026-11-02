@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.7
+// @version      2026-11-01.8
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -2734,11 +2734,11 @@
             x.fillStyle = '#ffffff'; x.fillRect(g0, by, gw, H); x.globalAlpha = 1; }
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
         // ticks run on a "looks like" max HP where item health counts 1.5x (tanky builds read tankier); the fill and
-        // damage still use real HP. Blocks start small (a heavy tick every 500, light every 100) and grow with the
-        // max; light ticks drop out once they'd be crammed closer than ~4px apart.
-        const vmax = Math.max(1, vis || max);
-        const [step, heavy] = vmax <= 2500 ? [100, 500] : vmax <= 6000 ? [250, 1000] : [500, 2000];
-        const light = W * step / vmax >= 4;
+        // damage still use real HP. A heavy tick every 500, a light one every 100;
+        // spacing is fixed, so more health always means more blocks; light ticks drop out once they'd be crammed
+        // closer than about half the bar's height (so it scales with zoom).
+        const vmax = Math.max(1, vis || max), step = 100, heavy = 500;
+        const light = W * step / vmax >= H * 0.55;
         for (let v = light ? step : heavy; v < vmax; v += light ? step : heavy) { const tx = bx + W * v / vmax, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
             x.fillStyle = 'rgba(0,0,0,.75)'; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
     }
