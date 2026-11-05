@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ultra secret pantheon tech
 // @namespace    prominence-chan/cambc
-// @version      2026-11-01.17
+// @version      2026-11-05.1
 // @description  Detects champion kills in Cambridge Battlecode replays (credited to the champion that landed the last hit, League-style execute assists), shows League kill banners with the champions' art plus a kill feed, and plays the League of Legends announcer with every take of each line: first blood, slain, double..hexa (45-round decay; Cassi & Issac dying together count as two), ace, victory/defeat. Works in the platform visualiser and the local `cambc view`, on engine v1 and v2 replays.
 // @match        https://2026a.battlecode.co.uk/service/tools/visualiser/*
 // @match        https://*.battlecode.co.uk/service/tools/visualiser/*
@@ -942,7 +942,10 @@
 #cbc-score .lead { font-size: 11px; color: #9a937f; min-width: 52px; text-align: center; } #cbc-score .lead.l0 { color: #6fa8ff; } #cbc-score .lead.l1 { color: #ff7a6e; }
 #cbc-score .gems { display: flex; align-items: center; gap: 6px; font: 600 10px 'IBM Plex Mono', monospace; color: #c9c2ae; }
 #cbc-score .gems canvas { flex: 1; height: 10px; min-width: 0; display: block; }
-#cbc-tab { position: fixed; transform: translateX(-50%); pointer-events: none; z-index: 2147482996; font: 600 12px Archivo, system-ui, sans-serif; color: #f0e6d2;
+/* the viewer's own side panel and playback bar, compacted so the game canvas gets more room (Yufan, 11-05) */
+#viewer-file-panel, #viewer-playback, #viewer-timeline-panel { zoom: .8; }
+#root > main:has(> #viewer-file-panel) { grid-template-columns: auto minmax(0, 1fr) auto !important; grid-template-rows: minmax(0, 1fr) auto !important; }
+#cbc-tab { position: fixed; transform: translateX(-50%) scale(.84); transform-origin: 50% 100%; pointer-events: none; z-index: 2147482996; font: 600 12px Archivo, system-ui, sans-serif; color: #f0e6d2;
   background: linear-gradient(rgba(14,17,26,.94), rgba(8,10,15,.94)); border: 1px solid #785a28; border-radius: 4px; padding: 4px 6px; filter: drop-shadow(0 3px 8px rgba(0,0,0,.6)); }
 #cbc-tab .row { display: grid; --gap: 6px; grid-template-columns: 44px 136px 46px 30px 28px 34px 50px 34px 28px 30px 46px 136px 44px; align-items: center; height: 36px; column-gap: 6px; }
 #cbc-tab .cn { display: flex; gap: 3px; } #cbc-tab .cn.l { justify-content: flex-end; }
@@ -2230,7 +2233,11 @@
         // screen geometry at the current distance (all of it scales with distance): the camera is pitched, so the
         // look point isn't mid-screen; the viewer's team bars cover the top, so frame into the clear part below
         const rc = b.htmlRefs.canvas.getBoundingClientRect(), pane = dualcam.mainPane(rc); // the left pane while split
-        const top = pane.top, bot = pane.bottom, mx = (pane.left + pane.right) / 2, my = (top + bot) / 2;
+        // frame into the part the HUD leaves clear (Yufan, 11-05): above our tab panel, and a little left of centre
+        // for the kill feed and toggles on the right, so the subject sits slightly up and left
+        const tabEl = document.getElementById('cbc-tab'), tabR = tabEl && tabEl.style.display !== 'none' ? tabEl.getBoundingClientRect() : null;
+        const top = pane.top, bot = tabR && tabR.height && tabR.top > top + (pane.bottom - top) * 0.45 ? Math.min(pane.bottom, tabR.top - 6) : pane.bottom;
+        const mx = pane.left + (pane.right - pane.left) * 0.47, my = top + (bot - top) * 0.47;
         let W, Lp, Rp, Tp, Bp;
         try { W = b.screenToWorld(mx, my); Lp = b.screenToWorld(pane.left + 20, my); Rp = b.screenToWorld(pane.right - 20, my); Tp = b.screenToWorld(mx, top); Bp = b.screenToWorld(mx, bot); } catch { return; }
         if (!W || !Lp || !Rp || !Tp || !Bp) return;
@@ -2740,12 +2747,12 @@
         x.fillStyle = 'rgba(255,255,255,.22)'; x.fillRect(bx, by, W * frac, Math.max(1, H * 0.18)); // lit top edge
         // ticks run on a "looks like" max HP where item health counts 2x (tanky builds read tankier); the fill and
         // damage still use real HP. A heavy tick every 500, a light one every 100;
-        // spacing is fixed, so more health always means more blocks; light ticks drop out once they'd be crammed
-        // closer than 2px.
-        const vmax = Math.max(1, vis || max), step = 100, heavy = 500;
-        const light = W * step / vmax >= 2; // light ticks stay until they'd be under 2px apart
-        for (let v = light ? step : heavy; v < vmax; v += light ? step : heavy) { const tx = bx + W * v / vmax, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : edge * 0.8;
-            x.fillStyle = 'rgba(0,0,0,.75)'; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
+        // spacing is fixed, so more health always means more blocks; light ticks stay much longer (Yufan, 11-05): down
+        // to 0.6px apart, thinning and fading below 2px instead of vanishing.
+        const vmax = Math.max(1, vis || max), step = 100, heavy = 500, gap = W * step / vmax;
+        const light = gap >= 0.6, lightK = Math.min(1, Math.max(0.35, (gap - 0.6) / 1.4));
+        for (let v = light ? step : heavy; v < vmax; v += light ? step : heavy) { const tx = bx + W * v / vmax, bigt = v % heavy === 0, tw = bigt ? edge * 1.4 : Math.min(edge * 0.8, gap * 0.5);
+            x.fillStyle = bigt ? 'rgba(0,0,0,.75)' : `rgba(0,0,0,${(0.75 * lightK).toFixed(3)})`; x.fillRect(tx - tw / 2, by, tw, bigt ? H : H * 0.5); }
     }
     const hpOwner = new WeakMap(); // viewer unit (a bar's depthReference) -> champion idx
     const hpHidden = new Map();    // viewer bar element we hid -> its opacity before
